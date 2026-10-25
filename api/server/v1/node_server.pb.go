@@ -1200,8 +1200,10 @@ type ServerProtocol struct {
 	CertMode                string                 `protobuf:"bytes,63,opt,name=cert_mode,json=certMode,proto3" json:"cert_mode,omitempty"`
 	CertDnsProvider         string                 `protobuf:"bytes,64,opt,name=cert_dns_provider,json=certDnsProvider,proto3" json:"cert_dns_provider,omitempty"`
 	CertDnsEnv              string                 `protobuf:"bytes,65,opt,name=cert_dns_env,json=certDnsEnv,proto3" json:"cert_dns_env,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	// REALITY target-side PROXY version: 0 (default), 1 or 2. Not listener reception.
+	RealityXver   uint32 `protobuf:"varint,66,opt,name=reality_xver,json=realityXver,proto3" json:"reality_xver,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ServerProtocol) Reset() {
@@ -1689,6 +1691,13 @@ func (x *ServerProtocol) GetCertDnsEnv() string {
 	return ""
 }
 
+func (x *ServerProtocol) GetRealityXver() uint32 {
+	if x != nil {
+		return x.RealityXver
+	}
+	return 0
+}
+
 // QueryServerProtocolConfigData is the strongly typed data payload returned
 // by GET /v2/server/{server_id}.
 type QueryServerProtocolConfigData struct {
@@ -1965,7 +1974,7 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\bspider_x\x18& \x01(\tR\aspiderX\x12\x1a\n" +
 	"\bsettings\x18' \x01(\tR\bsettings\x12'\n" +
 	"\x0fstream_settings\x18( \x01(\tR\x0estreamSettings\x12\x14\n" +
-	"\x05rules\x18) \x03(\tR\x05rules\"\xe7\x11\n" +
+	"\x05rules\x18) \x03(\tR\x05rules\"\x8a\x12\n" +
 	"\x0eServerProtocol\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\rR\x04port\x12\x18\n" +
@@ -2043,7 +2052,8 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\tcert_mode\x18? \x01(\tR\bcertMode\x12*\n" +
 	"\x11cert_dns_provider\x18@ \x01(\tR\x0fcertDnsProvider\x12 \n" +
 	"\fcert_dns_env\x18A \x01(\tR\n" +
-	"certDnsEnv\"\xa8\x03\n" +
+	"certDnsEnv\x12!\n" +
+	"\freality_xver\x18B \x01(\rR\vrealityXver\"\xa8\x03\n" +
 	"\x1dQueryServerProtocolConfigData\x128\n" +
 	"\x18traffic_report_threshold\x18\x01 \x01(\x03R\x16trafficReportThreshold\x12#\n" +
 	"\rpush_interval\x18\x02 \x01(\x03R\fpushInterval\x12#\n" +

@@ -29,6 +29,9 @@ func ValidateServerConfig(serverconfig *panel.ServerConfigResponse) error {
 }
 
 func validateProtocol(protocol panel.Protocol) error {
+	if protocol.Security == "reality" && (protocol.RealityXver < 0 || protocol.RealityXver > 2) {
+		return fmt.Errorf("reality_xver must be 0, 1 or 2")
+	}
 	if !protocol.Enable {
 		return nil
 	}

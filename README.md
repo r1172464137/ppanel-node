@@ -25,6 +25,17 @@ Protobuf 时，后续用户列表、在线用户、流量和状态上报都会�
 面板可能提供当前节点版本尚未支持的入站协议。节点会跳过这类协议及其配置，不会因
 它们导致其他已支持的协议无法启动。
 
+## REALITY target PROXY protocol
+
+The per-protocol numeric `reality_xver` field selects the PROXY header sent to the
+REALITY handshake target: `0` (default/absent, disabled), `1` (v1), or `2` (v2).
+JSON and protobuf are both supported (`ServerProtocol` protobuf tag 66, `uint32`).
+It is never inferred from `accept_proxy_protocol`: that existing option controls
+PROXY reception at the inbound listener, not transmission to the target.
+For nginx → ppnode port 20100 → REALITY target `127.0.0.1:8443`, retain reception
+and select the target's expected version explicitly. Ordinary remote targets
+should remain at zero. Non-REALITY inbounds ignore this REALITY-only setting.
+
 ## TLS 证书
 
 `cert_mode: dns` 和 `cert_mode: http` 使用 ACME 自动签发及续期；`self` 生成本地自签名

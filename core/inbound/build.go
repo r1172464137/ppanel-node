@@ -68,6 +68,9 @@ func Build(nodeInfo *panel.NodeInfo, tag string) (*core.InboundHandlerConfig, er
 		applyTLSSettings(nodeInfo, in)
 	}
 	if nodeInfo.Protocol.Security == "reality" {
+		if nodeInfo.Protocol.RealityXver < 0 || nodeInfo.Protocol.RealityXver > 2 {
+			return nil, fmt.Errorf("reality_xver must be 0, 1 or 2")
+		}
 		if in.StreamSetting == nil {
 			in.StreamSetting = &coreConf.StreamConfig{}
 		}
@@ -86,7 +89,7 @@ func Build(nodeInfo *panel.NodeInfo, tag string) (*core.InboundHandlerConfig, er
 		}
 		in.StreamSetting.REALITYSettings = &coreConf.REALITYConfig{
 			Dest:        d,
-			Xver:        uint64(0),
+			Xver:        uint64(v.RealityXver),
 			Show:        false,
 			ServerNames: []string{v.SNI},
 			PrivateKey:  v.RealityPrivateKey,

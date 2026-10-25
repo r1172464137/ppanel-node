@@ -79,6 +79,7 @@ type Protocol struct {
 	Fingerprint             string  `json:"fingerprint"`
 	RealityServerAddr       string  `json:"reality_server_addr"`
 	RealityServerPort       int     `json:"reality_server_port"`
+	RealityXver             int     `json:"reality_xver"` // Target-side PROXY version (0/1/2), independent of reception.
 	RealityPrivateKey       string  `json:"reality_private_key"`
 	RealityPublicKey        string  `json:"reality_public_key"`
 	RealityShortID          string  `json:"reality_short_id"`

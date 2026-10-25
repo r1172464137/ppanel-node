@@ -93,6 +93,7 @@ func serverConfigResponseFromProtobuf(message *serverv1.QueryServerProtocolConfi
 			Type: item.Type, Port: int(item.Port), Enable: item.Enable, Security: item.Security,
 			SNI: item.Sni, AllowInsecure: item.AllowInsecure, Fingerprint: item.Fingerprint,
 			RealityServerAddr: item.RealityServerAddr, RealityServerPort: int(item.RealityServerPort),
+			RealityXver:       int(item.RealityXver),
 			RealityPrivateKey: item.RealityPrivateKey, RealityPublicKey: item.RealityPublicKey,
 			RealityShortID: item.RealityShortId, Transport: item.Transport, Host: item.Host,
 			Path: item.Path, ServiceName: item.ServiceName, Cipher: item.Cipher, ServerKey: item.ServerKey,

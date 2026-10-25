@@ -209,6 +209,8 @@ message ServerProtocol {
   string cert_mode = 63;
   string cert_dns_provider = 64;
   string cert_dns_env = 65;
+  // REALITY target-side PROXY version: 0 (default), 1 or 2. Not listener reception.
+  uint32 reality_xver = 66;
 }
 
 // QueryServerProtocolConfigData is the strongly typed data payload returned
