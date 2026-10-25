@@ -8,8 +8,18 @@ A PPanel node server based on xray-core, modified from v2node.
 ### 一键安装
 
 ```
-wget -N https://raw.githubusercontent.com/perfect-panel/PPanel-node/master/scripts/install.sh && bash install.sh
+# Download install.sh and SHA256SUMS from this fork's release, verify first:
+# https://github.com/r1172464137/ppanel-node/releases/tag/v1.1.14
+# See docs/releases.md for the verified install/update commands.
 ```
+
+## 更新已有节点（保留配置与服务）
+
+Use the checksum-verified, binary-only `update.sh` release asset. It defaults to
+this fork's `v1.1.14`, preserves `/etc/PPanel-node/config.yml` and the existing
+`PPanel-node.service`, checks the actual MainPID executable/version, and restores
+the previous binary on failure. **Do not use an old upstream-linked `ppnode update`
+manager after updating only the binary.** See [release/update instructions](docs/releases.md).
 
 ## 构建
 ``` bash
@@ -53,7 +63,7 @@ should remain at zero. Non-REALITY inbounds ignore this REALITY-only setting.
 
 ## 开发验证
 
-项目使用 Go 1.27.1，JSON v2 已由标准库默认提供。与 CI 相同的验证命令：
+模块声明 Go 1.27.1，Release CI 使用 Go 1.27.3，JSON v2 已由标准库默认提供。验证命令：
 
 ```bash
 GOTOOLCHAIN=go1.27.1 go test -race -timeout 5m ./...

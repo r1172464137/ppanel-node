@@ -7,6 +7,37 @@ plain='\033[0m'
 
 cur_dir=$(pwd)
 
+# The verified installer bundled with the installed release is source-only here.
+if [[ ! -f /usr/local/PPanel-node/install.sh ]]; then
+    echo 'Verified installer missing; reinstall from r1172464137/ppanel-node releases.' >&2
+    exit 1
+fi
+source /usr/local/PPanel-node/install.sh
+
+select_release() {
+    local repo=${PPNODE_RELEASE_REPO:-}
+    if [[ -z $repo && -f /etc/PPanel-node/release-repo ]]; then
+        IFS= read -r repo < /etc/PPanel-node/release-repo
+    fi
+    release_init "${repo:-r1172464137/ppanel-node}" "${1:-}"
+}
+
+run_release_installer() (
+    select_release "${1:-}" || exit 1
+    tmp=$(mktemp -d) || exit 1
+    trap 'rm -rf "$tmp"' EXIT
+    release_fetch install.sh "$tmp" || exit 1
+    PPNODE_RELEASE_REPO="$RELEASE_REPO" bash "$tmp/install.sh" "$RELEASE_TAG"
+)
+
+run_release_updater() (
+    select_release "${1:-}" || exit 1
+    tmp=$(mktemp -d) || exit 1
+    trap 'rm -rf "$tmp"' EXIT
+    release_fetch update.sh "$tmp" || exit 1
+    PPNODE_RELEASE_REPO="$RELEASE_REPO" bash "$tmp/update.sh" "$RELEASE_TAG"
+)
+
 # check root
 [[ $EUID -ne 0 ]] && echo -e "${red}错误：${plain} 必须使用root用户运行此脚本！\n" && exit 1
 
@@ -42,8 +73,8 @@ elif [[ $arch == "aarch64" || $arch == "arm64" ]]; then
 elif [[ $arch == "s390x" ]]; then
     arch="s390x"
 else
-    arch="64"
-    echo -e "${red}检测架构失败，使用默认架构: ${arch}${plain}"
+    echo 'Unsupported architecture; select a release archive manually.' >&2
+    exit 1
 fi
 
 if [ "$(getconf WORD_BIT)" != '32' ] && [ "$(getconf LONG_BIT)" != '64' ] ; then
@@ -107,13 +138,10 @@ before_show_menu() {
 }
 
 install() {
-    bash <(curl -Ls https://raw.githubusercontent.com/perfect-panel/PPanel-node/master/scripts/install.sh)
-    if [[ $? == 0 ]]; then
-        if [[ $# == 0 ]]; then
-            start
-        else
-            start 0
-        fi
+    if run_release_installer; then
+        if [[ $# == 0 ]]; then start; else start 0; fi
+    else
+        return 1
     fi
 }
 
@@ -121,10 +149,9 @@ update() {
     if [[ $# == 0 ]]; then
         echo && echo -n -e "输入指定版本(默认最新版): " && read version
     else
-        version=$2
+        version=${2:-}
     fi
-    bash <(curl -Ls https://raw.githubusercontent.com/perfect-panel/PPanel-node/master/scripts/install.sh) $version
-    if [[ $? == 0 ]]; then
+    if run_release_updater "$version"; then
         echo -e "${green}更新完成，已自动重启 PPanel-node，请使用 ppnode log 查看运行日志${plain}"
         exit
     fi
@@ -132,6 +159,7 @@ update() {
     if [[ $# == 0 ]]; then
         before_show_menu
     fi
+    return 1
 }
 
 config() {
@@ -308,15 +336,15 @@ show_log() {
 
 
 update_shell() {
-    wget -O /usr/bin/ppnode -N --no-check-certificate https://raw.githubusercontent.com/perfect-panel/ppanel-node/master/scripts/ppnode.sh
-    if [[ $? != 0 ]]; then
-        echo ""
-        echo -e "${red}下载脚本失败，请检查本机能否连接 Github${plain}"
-        before_show_menu
-    else
-        chmod +x /usr/bin/ppnode
-        echo -e "${green}升级脚本成功，请重新运行脚本${plain}" && exit 0
-    fi
+    (
+        select_release || exit 1
+        tmp=$(mktemp -d) || exit 1
+        trap 'rm -rf "$tmp"' EXIT
+        release_fetch ppnode.sh "$tmp" || exit 1
+        install -m 0755 "$tmp/ppnode.sh" /usr/bin/ppnode
+    ) || return 1
+    echo -e "${green}升级脚本成功，请重新运行脚本${plain}"
+    exit 0
 }
 
 # 0: running, 1: not running, 2: not installed
@@ -517,7 +545,7 @@ show_usage() {
 show_menu() {
     echo -e "
   ${green}PPanel-node 后端管理脚本，${plain}${red}不适用于docker${plain}
---- https://github.com/perfect-panel/PPanel-node ---
+--- https://github.com/r1172464137/ppanel-node ---
   ${green}0.${plain} 修改配置
 ————————————————
   ${green}1.${plain} 安装 PPanel-node
@@ -574,7 +602,7 @@ if [[ $# > 0 ]]; then
         "enable") check_install 0 && enable 0 ;;
         "disable") check_install 0 && disable 0 ;;
         "log") check_install 0 && show_log 0 ;;
-        "update") check_install 0 && update 0 $2 ;;
+        "update") check_install 0 && update 0 "${2:-}" ;;
         "config") config $* ;;
         "generate") generate_config_file ;;
         "install") check_uninstall 0 && install 0 ;;

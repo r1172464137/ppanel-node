@@ -1,0 +1,11 @@
+Log:
+  Level: warn
+  Output: ''
+  Access: none
+Api:
+  ApiHost: https://panel.example.com
+  ServerID: 1
+  SecretKey: REPLACE_ME
+  Timeout: 30
+  ACMEEmail: ''
+  ACMECADirURL: ''

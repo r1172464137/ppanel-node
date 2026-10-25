@@ -1,30 +1,22 @@
 name: Build and Release
-
 on:
+  push:
+    tags: ['v[0-9]*']
+    branches: [master, develop]
+  pull_request:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing release tag to rebuild and upload missing assets
-        required: false
+        description: Existing vX.Y.Z tag to publish/rebuild
+        required: true
         type: string
-  push:
-    branches:
-      - master
-      - develop
-    paths:
-      - "**/*.go"
-      - "go.mod"
-      - "go.sum"
-      - ".github/workflows/*.yml"
-  pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - "**/*.go"
-      - "go.mod"
-      - "go.sum"
-      - ".github/workflows/*.yml"
-  release:
-    types: [published]
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.release_tag || github.ref }}
+  cancel-in-progress: false
+env:
+  GOTOOLCHAIN: local
 
 jobs:
   test:
@@ -35,199 +27,111 @@ jobs:
           ref: ${{ inputs.release_tag || github.sha }}
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.27.1'
-      - name: Test with race detector
-        run: go test -race -timeout 5m ./...
+          go-version: '1.27.3'
+      - name: Installer helpers and focused contract tests
+        run: |
+          bash scripts/test-release.sh
+          go test -race -timeout 5m ./api/panel ./core/inbound ./core -run 'TestRealityXver|TestBuild|TestShouldConfigureTLS|TestApplyTLS|TestValidateServerConfig' -count=1
+
+  prepare:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      sha: ${{ steps.meta.outputs.sha }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      matrix: ${{ steps.meta.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref_name }}
+      - id: meta
+        env:
+          TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]
+          sha=$(git rev-parse HEAD)
+          test "$(git rev-list -n 1 "$TAG")" = "$sha"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          prerelease=false
+          [[ $TAG != *-* ]] || prerelease=true
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(jq -c . .github/build/release-targets.json)" >> "$GITHUB_OUTPUT"
+      - name: Fetch geodata once for this release (fail on HTTP errors)
+        run: |
+          mkdir -p geodata
+          for file in geoip.dat geosite.dat; do
+            curl --proto '=https' --tlsv1.2 -fSL --retry 3 -o "geodata/$file" "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/$file"
+            curl --proto '=https' --tlsv1.2 -fSL --retry 3 -o "geodata/$file.sha256sum" "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/$file.sha256sum"
+            (cd geodata && sha256sum -c "$file.sha256sum")
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-geodata
+          path: geodata/*
+          if-no-files-found: error
 
   build:
-    needs: test
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.3'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-geodata
+          path: geodata
+      - name: Build and package
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          GEODATA_DIR: geodata
+        run: bash scripts/release-build.sh '${{ matrix.goos }}' '${{ matrix.goarch }}' '${{ matrix.goarm }}' '${{ matrix.gomips }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.id }}
+          path: output/release/*.zip
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-    strategy:
-      matrix:
-        # Include amd64 on all platforms.
-        goos: [windows, freebsd, linux, darwin]
-        goarch: [amd64, 386]
-        exclude:
-          # Exclude i386 on darwin.
-          - goarch: 386
-            goos: darwin
-        include:
-          # BEIGIN MacOS ARM64
-          - goos: darwin
-            goarch: arm64
-          # END MacOS ARM64
-          # BEGIN Linux ARM 5 6 7
-          - goos: linux
-            goarch: arm
-            goarm: 7
-          - goos: linux
-            goarch: arm
-            goarm: 6
-          - goos: linux
-            goarch: arm
-            goarm: 5
-          # END Linux ARM 5 6 7
-          # BEGIN Android ARM 8
-          - goos: android
-            goarch: arm64
-          # END Android ARM 8
-          # BEGIN Other architectures
-          # BEGIN riscv64 & ARM64
-          - goos: linux
-            goarch: arm64
-          - goos: linux
-            goarch: riscv64
-          # END riscv64 & ARM64
-          # BEGIN MIPS
-          - goos: linux
-            goarch: mips64
-          - goos: linux
-            goarch: mips64le
-          - goos: linux
-            goarch: mipsle
-          - goos: linux
-            goarch: mips
-          # END MIPS
-          # BEGIN PPC
-          - goos: linux
-            goarch: ppc64
-          - goos: linux
-            goarch: ppc64le
-          # END PPC
-          # BEGIN FreeBSD ARM
-          - goos: freebsd
-            goarch: arm64
-          - goos: freebsd
-            goarch: arm
-            goarm: 7
-          # END FreeBSD ARM
-          # BEGIN S390X
-          - goos: linux
-            goarch: s390x
-          # END S390X
-          # END Other architectures
-      fail-fast: false
-
-    runs-on: ubuntu-latest
-    env:
-      GOOS: ${{ matrix.goos }}
-      GOARCH: ${{ matrix.goarch }}
-      GOARM: ${{ matrix.goarm }}
-      CGO_ENABLED: 0
-      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag || '' }}
     steps:
-      - name: Checkout codebase
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.release_tag || github.sha }}
-      - name: Show workflow information
-        id: get_filename
-        run: |
-          export _NAME=$(jq ".[\"$GOOS-$GOARCH$GOARM$GOMIPS\"].friendlyName" -r < .github/build/friendly-filenames.json)
-          echo "GOOS: $GOOS, GOARCH: $GOARCH, GOARM: $GOARM, GOMIPS: $GOMIPS, RELEASE_NAME: $_NAME"
-          echo "ASSET_NAME=$_NAME" >> $GITHUB_OUTPUT
-          echo "ASSET_NAME=$_NAME" >> $GITHUB_ENV
-      - name: Set up Go
-        uses: actions/setup-go@v5
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/download-artifact@v4
         with:
-          go-version: '1.27.1'
-
-      - name: Get project dependencies
-        run: go mod download
-      - name: Set build version
+          pattern: binary-*
+          merge-multiple: true
+          path: output/release
+      - name: Publish archives, management scripts, template and SHA256SUMS
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
-          if [[ -n "$RELEASE_TAG" ]]; then
-            git check-ref-format "refs/tags/$RELEASE_TAG"
-            gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null
-            printf 'version=%s\n' "$RELEASE_TAG" >> "$GITHUB_ENV"
-          else
-            printf 'version=%s\n' "$GITHUB_SHA" >> "$GITHUB_ENV"
+          set -euo pipefail
+          cp scripts/install.sh scripts/ppnode.sh scripts/update.sh output/release/
+          cp conf/config.yml.example output/release/config.yml
+          cd output/release
+          sha256sum -- *.zip install.sh ppnode.sh update.sh config.yml > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$TAG" --generate-notes
           fi
-      - name: Build
-        run: |
-          echo "version: $version"
-          mkdir -p build_assets
-          build_ldflags="-X 'github.com/perfect-panel/ppanel-node/cmd.version=$version' -s -w -buildid="
-          if [[ "$GOOS" == "android" ]]; then
-            # anet uses net.zoneCache via go:linkname on Android (Go 1.23+).
-            build_ldflags+=" -checklinkname=0"
-          fi
-          go build -v -o build_assets/ppnode -trimpath -ldflags "$build_ldflags"
-
-      - name: Build Mips softfloat
-        if: matrix.goarch == 'mips' || matrix.goarch == 'mipsle'
-        run: |
-          echo "version: $version"
-          GOMIPS=softfloat go build -v -o build_assets/ppnode_softfloat -trimpath -ldflags "-X 'github.com/perfect-panel/ppanel-node/cmd.version=$version' -s -w -buildid="
-      - name: Rename Windows
-        if: matrix.goos == 'windows'
-        run: |
-          cd ./build_assets || exit 1
-          mv ppnode ppnode.exe
-      - name: Prepare to release
-        run: |
-          cp ${GITHUB_WORKSPACE}/README.md ./build_assets/README.md
-          cp ${GITHUB_WORKSPACE}/LICENSE ./build_assets/LICENSE
-          LIST=('geoip' 'geosite')
-          for i in "${LIST[@]}"
-          do
-            DOWNLOAD_URL="https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/${i}.dat"
-            FILE_NAME="${i}.dat"
-            echo -e "Downloading ${DOWNLOAD_URL}..."
-            curl -L "${DOWNLOAD_URL}" -o ./build_assets/${FILE_NAME}
-          done
-      - name: Create ZIP archive
-        shell: bash
-        run: |
-          pushd build_assets || exit 1
-          touch -mt $(date +%Y01010000) *
-          zip -9vr ../ppanel-node-$ASSET_NAME.zip .
-          popd || exit 1
-          FILE=./ppanel-node-$ASSET_NAME.zip
-          DGST=$FILE.dgst
-          for METHOD in {"md5","sha1","sha256","sha512"}
-          do
-            openssl dgst -$METHOD $FILE | sed 's/([^)]*)//g' >>$DGST
-          done
-      - name: Change the name
-        run: |
-          mv build_assets ppanel-node-$ASSET_NAME
-      - name: Upload files to Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ppanel-node-${{ steps.get_filename.outputs.ASSET_NAME }}
-          path: |
-            ./ppanel-node-${{ steps.get_filename.outputs.ASSET_NAME }}/*
-      - name: Upload binaries to release
-        if: env.RELEASE_TAG != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-            --json assets --jq '.assets[].name' > release-assets.txt
-          archive="ppanel-node-$ASSET_NAME.zip"
-          checksum="$archive.dgst"
-          if grep -Fxq -- "$archive" release-assets.txt; then
-            if grep -Fxq -- "$checksum" release-assets.txt; then
-              printf 'Keeping existing assets: %s and %s\n' "$archive" "$checksum"
-              exit 0
-            fi
-            # A checksum must describe the archive already published, which
-            # may differ from this rebuild (for example after geodata updates).
-            mkdir -p existing-release
-            gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              --pattern "$archive" --dir existing-release
-            : > "$checksum"
-            for method in md5 sha1 sha256 sha512; do
-              openssl dgst "-$method" "existing-release/$archive" | sed 's/([^)]*)//g' >> "$checksum"
-            done
-          elif grep -Fxq -- "$checksum" release-assets.txt; then
-            printf 'Checksum exists without its archive: %s\n' "$checksum" >&2
-            exit 1
-          else
-            gh release upload "$RELEASE_TAG" "$archive" --repo "$GITHUB_REPOSITORY"
-          fi
-          gh release upload "$RELEASE_TAG" "$checksum" --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" ./*.zip install.sh ppnode.sh update.sh config.yml SHA256SUMS --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease="$PRERELEASE"
