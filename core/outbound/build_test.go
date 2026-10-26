@@ -1,6 +1,7 @@
 package outbound
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -219,8 +220,9 @@ func TestStructuredRuleParserLimits(t *testing.T) {
 	for i := range largeRules {
 		largeRules[i] = "regex:" + strings.Repeat("a", MaxRouteRuleBytes-len("regexp:")-4) + fmt.Sprintf("%03d", i)
 	}
-	if _, err := Build(&panel.ServerConfigResponse{Data: &panel.Data{Block: &largeRules}}, false); err == nil || !strings.Contains(err.Error(), "49152 canonical payload bytes") {
-		t.Fatalf("structured payload-byte limit error = %v", err)
+	largeOutbound := []panel.Outbound{{Name: "large", Protocol: "unsupported", Rules: largeRules}}
+	if _, err := Build(&panel.ServerConfigResponse{Data: &panel.Data{Outbound: &largeOutbound}}, false); err == nil || !strings.Contains(err.Error(), "outbound route rules exceed 49152 canonical payload bytes") {
+		t.Fatalf("outbound payload-byte limit error = %v", err)
 	}
 
 	uniqueIPs := make([]string, MaxRouteRules)
@@ -231,13 +233,81 @@ func TestStructuredRuleParserLimits(t *testing.T) {
 	for i := range outbounds {
 		outbounds[i] = panel.Outbound{Name: fmt.Sprintf("bulk-%d", i), Protocol: "unsupported", IPRules: append([]string(nil), uniqueIPs...)}
 	}
-	if _, err := Build(&panel.ServerConfigResponse{Data: &panel.Data{Outbound: &outbounds}}, false); err == nil || !strings.Contains(err.Error(), "4096 canonical values") {
-		t.Fatalf("structured canonical aggregate-count error = %v", err)
+	if _, err := Build(&panel.ServerConfigResponse{Data: &panel.Data{Outbound: &outbounds}}, false); err == nil || !strings.Contains(err.Error(), "outbound route rules exceed 4096 canonical values") {
+		t.Fatalf("outbound canonical aggregate-count error = %v", err)
 	}
 
 	tooManyOutbounds := make([]panel.Outbound, MaxNodeOutbounds+1)
 	if err := validateRouteConfigRawLimits(&panel.Data{Outbound: &tooManyOutbounds}); err == nil || !strings.Contains(err.Error(), "128 outbounds") {
 		t.Fatalf("outbound count error = %v", err)
+	}
+}
+
+func TestLargeBackendValidGlobalBlocksAreIndependentFromOutboundAggregate(t *testing.T) {
+	blockDomains := make([]string, 800)
+	for i := range blockDomains {
+		blockDomains[i] = fmt.Sprintf("host-%04d-%s.example", i, strings.Repeat("x", 40))
+	}
+	blockIPs := make([]string, MaxRouteRules)
+	for i := range blockIPs {
+		blockIPs[i] = fmt.Sprintf("2001:db8:aaaa:bbbb:cccc:dddd:1:%x/128", i+1)
+	}
+	blockProtocols := []string{"bittorrent"}
+
+	canonicalDomains, err := buildDomainRules(blockDomains)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalIPs, err := buildIPRules(blockIPs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalProtocols, err := buildProtocolRules(blockProtocols)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalBytes := 0
+	persistedSizes := make(map[string]int, 3)
+	for _, group := range []struct {
+		name   string
+		values []string
+	}{
+		{name: "block", values: canonicalDomains},
+		{name: "block_ips", values: canonicalIPs},
+		{name: "block_protocols", values: canonicalProtocols},
+	} {
+		persisted, err := json.Marshal(group.values)
+		if err != nil {
+			t.Fatal(err)
+		}
+		persistedSizes[group.name] = len(persisted)
+		if len(persisted) >= MaxPersistedRouteJSONBytes {
+			t.Fatalf("%s fixture is %d bytes, want backend-valid persisted JSON below %d", group.name, len(persisted), MaxPersistedRouteJSONBytes)
+		}
+		for _, value := range group.values {
+			canonicalBytes += len(value)
+		}
+	}
+	t.Logf("backend-valid globals: persisted block=%d block_ips=%d block_protocols=%d; canonical payload=%d (> outbound %d)", persistedSizes["block"], persistedSizes["block_ips"], persistedSizes["block_protocols"], canonicalBytes, MaxOutboundAggregateBytes)
+	if canonicalBytes <= MaxOutboundAggregateBytes {
+		t.Fatalf("global fixture is only %d canonical bytes; it must exceed outbound-only %d-byte limit", canonicalBytes, MaxOutboundAggregateBytes)
+	}
+
+	if _, err := Build(&panel.ServerConfigResponse{Data: &panel.Data{
+		Block: &blockDomains, BlockIPs: &blockIPs, BlockProtocols: &blockProtocols,
+	}}, false); err != nil {
+		t.Fatalf("backend-valid large global block categories were rejected: %v", err)
+	}
+}
+
+func TestExcessiveDirectGlobalBlockPayloadIsBounded(t *testing.T) {
+	blockDomains := make([]string, MaxRouteRules)
+	for i := range blockDomains {
+		blockDomains[i] = fmt.Sprintf("keyword:%04d-%s", i, strings.Repeat("x", 190))
+	}
+	_, err := Build(&panel.ServerConfigResponse{Data: &panel.Data{Block: &blockDomains}}, false)
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("global block route rules exceed %d canonical payload bytes", MaxGlobalBlockAggregateBytes)) {
+		t.Fatalf("excessive direct global block payload error = %v", err)
 	}
 }
 

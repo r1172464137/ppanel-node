@@ -29,10 +29,18 @@ network prefix. Protocol values are case-insensitive and canonicalize to
 ## Bounds and compatibility
 
 The shared canonical contract permits at most 1024 unique canonical values per
-category, 4096 bytes per canonical rule, 128 structured outbounds, and 4096
-canonical structured block+outbound rules totaling at most 48 KiB. DNS resolver
-domain lists use the same grammar/per-category limit but are intentionally not
-part of the structured route aggregate.
+category and 4096 bytes per canonical rule. Custom outbounds are additionally
+limited to 128 entries and, across outbound `rules`, `ip_rules`, and
+`protocol_rules` only, 4096 canonical rules totaling at most 48 KiB.
+
+Global `block`, `block_ips`, and `block_protocols` do not consume the outbound
+aggregate. Each is independently subject to the category limit and the backend's
+final persisted JSON for each array must remain below 60 KiB. PPNODE adds a
+whole-global fail-safe of 3072 canonical rules and 180 KiB of canonical payload,
+which accepts every combination of three backend-valid persisted arrays while
+bounding direct node JSON. Together with the outbound ceiling, structured route
+payload is bounded at 228 KiB. DNS resolver domain lists use the shared grammar
+and per-category limit but are excluded from both aggregates.
 
 Separately, PPNODE applies node-only pre-normalization DoS bounds of 4096 raw
 entries per category and 8192 raw structured block+outbound entries. Duplicates

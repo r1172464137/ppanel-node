@@ -33,7 +33,15 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 	if err := validateRouteConfigRawLimits(serverconfig.Data); err != nil {
 		return nil, err
 	}
-	structuredBudget := routeRuleBudget{}
+	globalBlockBudget := routeRuleBudget{
+		scope: "global block", maxRules: MaxGlobalBlockAggregateRules, maxBytes: MaxGlobalBlockAggregateBytes,
+	}
+	outboundBudget := routeRuleBudget{
+		scope: "outbound", maxRules: MaxOutboundAggregateRules, maxBytes: MaxOutboundAggregateBytes,
+	}
+	configBudget := routeRuleBudget{
+		scope: "structured config", maxRules: MaxStructuredConfigAggregateRules, maxBytes: MaxStructuredConfigAggregateBytes,
+	}
 
 	var ipStrategy string
 	if serverconfig.Data.IPStrategy != "" {
@@ -131,7 +139,10 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 		if err != nil {
 			return nil, fmt.Errorf("invalid global block protocol rules: %w", err)
 		}
-		if err := structuredBudget.add("block_protocols", protocols); err != nil {
+		if err := globalBlockBudget.add("block_protocols", protocols); err != nil {
+			return nil, err
+		}
+		if err := configBudget.add("block_protocols", protocols); err != nil {
 			return nil, err
 		}
 		if err := appendRouteRule(coreRouterConfig, "protocol", protocols, BlockTag); err != nil {
@@ -143,7 +154,10 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 		if err != nil {
 			return nil, fmt.Errorf("invalid global block IP rules: %w", err)
 		}
-		if err := structuredBudget.add("block_ips", ips); err != nil {
+		if err := globalBlockBudget.add("block_ips", ips); err != nil {
+			return nil, err
+		}
+		if err := configBudget.add("block_ips", ips); err != nil {
 			return nil, err
 		}
 		if err := appendRouteRule(coreRouterConfig, "ip", ips, BlockTag); err != nil {
@@ -155,7 +169,10 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 		if err != nil {
 			return nil, fmt.Errorf("invalid global block domain rules: %w", err)
 		}
-		if err := structuredBudget.add("block", domains); err != nil {
+		if err := globalBlockBudget.add("block", domains); err != nil {
+			return nil, err
+		}
+		if err := configBudget.add("block", domains); err != nil {
 			return nil, err
 		}
 		if err := appendRouteRule(coreRouterConfig, "domain", domains, BlockTag); err != nil {
@@ -189,7 +206,11 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 				{field: "ip_rules", values: ips},
 				{field: "protocol_rules", values: protocols},
 			} {
-				if err := structuredBudget.add(fmt.Sprintf("outbound %q %s", outbounditem.Name, group.field), group.values); err != nil {
+				field := fmt.Sprintf("outbound %q %s", outbounditem.Name, group.field)
+				if err := outboundBudget.add(field, group.values); err != nil {
+					return nil, err
+				}
+				if err := configBudget.add(field, group.values); err != nil {
 					return nil, err
 				}
 			}
@@ -260,11 +281,16 @@ func hasOutboundWithTag(list []*core.OutboundHandlerConfig, tag string) bool {
 
 const (
 	// Canonical limits are shared with the backend/frontend contract.
-	MaxRouteRules               = 1024
-	MaxRouteRuleBytes           = 4096
-	MaxNodeOutbounds            = 128
-	MaxStructuredAggregateRules = 4096
-	MaxStructuredAggregateBytes = 48 * 1024
+	MaxRouteRules                     = 1024
+	MaxRouteRuleBytes                 = 4096
+	MaxNodeOutbounds                  = 128
+	MaxOutboundAggregateRules         = 4096
+	MaxOutboundAggregateBytes         = 48 * 1024
+	MaxPersistedRouteJSONBytes        = 60 * 1024
+	MaxGlobalBlockAggregateRules      = 3 * MaxRouteRules
+	MaxGlobalBlockAggregateBytes      = 3 * MaxPersistedRouteJSONBytes
+	MaxStructuredConfigAggregateRules = MaxGlobalBlockAggregateRules + MaxOutboundAggregateRules
+	MaxStructuredConfigAggregateBytes = MaxGlobalBlockAggregateBytes + MaxOutboundAggregateBytes
 	// Raw bounds are node-only pre-normalization DoS guards. They deliberately
 	// permit duplicates above the canonical unique-value limits.
 	MaxRawRouteEntriesPerCategory = 4096
@@ -492,19 +518,20 @@ func normalizeProtocolRule(rule string) (string, error) {
 }
 
 type routeRuleBudget struct {
-	count int
-	bytes int
+	scope              string
+	count, bytes       int
+	maxRules, maxBytes int
 }
 
 func (b *routeRuleBudget) add(field string, canonical []string) error {
 	for _, rule := range canonical {
 		b.count++
 		b.bytes += len(rule)
-		if b.count > MaxStructuredAggregateRules {
-			return fmt.Errorf("structured route rules exceed %d canonical values at %s", MaxStructuredAggregateRules, field)
+		if b.count > b.maxRules {
+			return fmt.Errorf("%s route rules exceed %d canonical values at %s", b.scope, b.maxRules, field)
 		}
-		if b.bytes > MaxStructuredAggregateBytes {
-			return fmt.Errorf("structured route rules exceed %d canonical payload bytes at %s", MaxStructuredAggregateBytes, field)
+		if b.bytes > b.maxBytes {
+			return fmt.Errorf("%s route rules exceed %d canonical payload bytes at %s", b.scope, b.maxBytes, field)
 		}
 	}
 	return nil
