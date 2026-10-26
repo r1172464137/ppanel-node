@@ -9,6 +9,30 @@ printf 'verified release payload\n' > "$tmp/source/test.zip"
 (cd "$tmp/source" && sha256sum test.zip > SHA256SUMS)
 cp "$tmp/source/SHA256SUMS" "$tmp/good-sums"
 
+# Geodata bundle verification and installation are independent of release ZIP checksums.
+mkdir -p "$tmp/geodata-source" "$tmp/geodata-installed"
+printf 'test geoip payload\n' > "$tmp/geodata-source/geoip.dat"
+printf 'test geosite payload\n' > "$tmp/geodata-source/geosite.dat"
+geoip_digest=$(sha256sum "$tmp/geodata-source/geoip.dat" | awk '{print $1}')
+geosite_digest=$(sha256sum "$tmp/geodata-source/geosite.dat" | awk '{print $1}')
+cat > "$tmp/geodata-source/geodata.lock" <<EOF
+repository=test/fork
+commit=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+geoip_sha256=$geoip_digest
+geosite_sha256=$geosite_digest
+EOF
+verify_geodata_bundle "$tmp/geodata-source"
+install_geodata_payload "$tmp/geodata-source" "$tmp/geodata-installed"
+for file in geoip.dat geosite.dat geodata.lock; do cmp "$tmp/geodata-source/$file" "$tmp/geodata-installed/$file"; done
+printf '#!/bin/sh\nexit 0\n' > "$tmp/geodata-source/ppnode"
+chmod 755 "$tmp/geodata-source/ppnode"
+(cd "$tmp/geodata-source" && zip -q "$tmp/runtime-payload.zip" ppnode geoip.dat geosite.dat geodata.lock)
+extract_runtime_payload "$tmp/runtime-payload.zip" "$tmp/runtime-extracted"
+for file in ppnode geoip.dat geosite.dat geodata.lock; do cmp "$tmp/geodata-source/$file" "$tmp/runtime-extracted/$file"; done
+printf 'corrupt\n' >> "$tmp/geodata-installed/geoip.dat"
+if verify_geodata_bundle "$tmp/geodata-installed"; then echo 'accepted corrupt installed geodata' >&2; exit 1; fi
+install_geodata_payload "$tmp/geodata-source" "$tmp/geodata-installed"
+
 curl() {
     local output='' effective=false arg url=''
     while [[ $# -gt 0 ]]; do
@@ -69,13 +93,40 @@ if [[ -f $here/verify-release-rootfs.sh ]]; then
     : > "$tmp/rootfs/linux_arm64/etc/ssl/certs/ca-certificates.crt"
     if bash "$here/verify-release-rootfs.sh" "$tmp/rootfs" "$tmp/bin"; then exit 1; fi
 fi
-# The standalone updater and installed manager share the installer's exact
-# checksum implementation; compare the actual function bodies to catch drift.
-for function in release_init release_fetch; do
+# The standalone updater shares the installer's exact release/geodata checks.
+for function in release_init release_fetch geodata_lock_value verify_geodata_bundle extract_runtime_payload; do
     declare -f "$function" > "$tmp/$function.installer"
     bash -c 'source "$1/update.sh"; declare -f "$2"' _ "$here" "$function" > "$tmp/$function.updater"
     cmp "$tmp/$function.installer" "$tmp/$function.updater"
 done
+for function in geodata_lock_value verify_geodata_bundle; do
+    declare -f "$function" > "$tmp/$function.installer"
+    bash -c 'source "$1/fetch-geodata.sh"; declare -f "$2"' _ "$here" "$function" > "$tmp/$function.fetcher"
+    cmp "$tmp/$function.installer" "$tmp/$function.fetcher"
+done
+# The fetcher must use the lock's immutable commit and independently verify bytes.
+(
+    test_root=$tmp
+    source "$here/fetch-geodata.sh"
+    mkdir -p "$test_root/fetch-source" "$test_root/fetched"
+    cp "$test_root/geodata-source/geoip.dat" "$test_root/geodata-source/geosite.dat" "$test_root/fetch-source/"
+    curl() {
+        local output='' url='' arg
+        while [[ $# -gt 0 ]]; do
+            arg=$1; shift
+            case $arg in
+                -o) output=$1; shift ;;
+                --proto|--retry) shift ;;
+                --tlsv1.2|-fsSL) ;;
+                https:*) url=$arg ;;
+            esac
+        done
+        [[ $url == https://raw.githubusercontent.com/test/fork/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/* ]]
+        cp "$test_root/fetch-source/${url##*/}" "$output"
+    }
+    fetch_geodata "$test_root/fetched" "$test_root/geodata-source/geodata.lock"
+    for file in geoip.dat geosite.dat geodata.lock; do cmp "$test_root/geodata-source/$file" "$test_root/fetched/$file"; done
+)
 source "$here/update.sh"
 mkdir -p "$tmp/proc/123"
 printf '#!/usr/bin/env bash\nprintf "PPanel-node 1.1.14 (test)\\n"\n' > "$tmp/node"
@@ -94,18 +145,20 @@ SERVICE_PID=0
 if verify_running_node "$tmp/node" 1.1.14 "$tmp/proc"; then exit 1; fi
 unset SERVICE_PID
 if verify_running_node "$tmp/other" 1.1.14 "$tmp/proc"; then exit 1; fi
-# Exercise the production atomic restore helper with a mocked service manager.
+# Exercise complete binary+geodata rollback with a mocked service manager.
 systemctl() { printf '%s\n' "$*" >> "$tmp/service-calls"; return "${RESTART_STATUS:-0}"; }
-printf 'old executable\n' > "$tmp/backup"
-printf 'new executable\n' > "$tmp/current"
-restore_node_binary "$tmp/current" "$tmp/backup" true
-cmp "$tmp/current" "$tmp/backup"
+mkdir -p "$tmp/runtime" "$tmp/payload-backup"
+for file in ppnode geoip.dat geosite.dat geodata.lock; do printf 'old-%s\n' "$file" > "$tmp/payload-backup/$file"; printf 'new-%s\n' "$file" > "$tmp/runtime/$file"; done
+restore_node_payload "$tmp/runtime" "$tmp/payload-backup" true
+for file in ppnode geoip.dat geosite.dat geodata.lock; do cmp "$tmp/runtime/$file" "$tmp/payload-backup/$file"; done
 grep -Fx 'restart PPanel-node.service' "$tmp/service-calls"
-restore_node_binary "$tmp/current" "$tmp/backup" false
+rm -f "$tmp/payload-backup/geoip.dat"
+printf 'new geoip\n' > "$tmp/runtime/geoip.dat"
+restore_node_payload "$tmp/runtime" "$tmp/payload-backup" false
+[[ ! -e $tmp/runtime/geoip.dat ]]
 grep -Fx 'stop PPanel-node.service' "$tmp/service-calls"
 RESTART_STATUS=1
-if restore_node_binary "$tmp/current" "$tmp/backup" true; then exit 1; fi
-cmp "$tmp/current" "$tmp/backup"
+if restore_node_payload "$tmp/runtime" "$tmp/payload-backup" true; then exit 1; fi
 unset RESTART_STATUS
 python3 - "$here/../.github/build" <<'PY'
 import json, pathlib, sys
@@ -120,4 +173,13 @@ for row in rows:
     ids.add(key)
 PY
 for script in "$here"/*.sh; do bash -n "$script"; done
-printf 'PASS: production release download/checksum helpers and shell syntax\n'
+ruby -e 'require "yaml"; ARGV.each { |path| YAML.parse_file(path) }' "$here"/../.github/workflows/*.yml
+grep -F 'bash scripts/fetch-geodata.sh' "$here/../.github/workflows/ci.yml" "$here/../.github/workflows/release.yml" >/dev/null
+grep -F 'RUN bash scripts/fetch-geodata.sh ./output/geodata' "$here/../Dockerfile" >/dev/null
+grep -F '/usr/local/PPanel-node/' "$here/../Dockerfile" >/dev/null
+grep -F 'geoip.dat geosite.dat geodata.lock' "$here/release-build.sh" "$here/install.sh" "$here/update.sh" >/dev/null
+if grep -R 'raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/' "$here/../.github/workflows"; then
+    echo 'workflow still uses mutable geodata release branch' >&2
+    exit 1
+fi
+printf 'PASS: production release/geodata helpers, rollback, workflow YAML and shell syntax\n'

@@ -392,9 +392,11 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 	if !sniffingRequest.Enabled {
 		d.routedDispatch(ctx, outbound, destination, limit, "")
 	} else {
-		cReader := &cachedReader{
-			reader: outbound.Reader.(buf.TimeoutReader),
+		timeoutReader, ok := outbound.Reader.(buf.TimeoutReader)
+		if !ok {
+			timeoutReader = &buf.TimeoutWrapperReader{Reader: outbound.Reader}
 		}
+		cReader := &cachedReader{reader: timeoutReader}
 		outbound.Reader = cReader
 		result, err := sniffer(ctx, cReader, sniffingRequest.MetadataOnly, destination.Network)
 		if err == nil {

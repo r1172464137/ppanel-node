@@ -80,7 +80,9 @@ func serverConfigResponseFromProtobuf(message *serverv1.QueryServerProtocolConfi
 			UDPStream: item.UdpStream, ReduceRTT: item.ReduceRtt, Heartbeat: int(item.Heartbeat),
 			RealityPublicKey: item.RealityPublicKey, RealityShortID: item.RealityShortId,
 			SpiderX: item.SpiderX, Settings: item.Settings, StreamSettings: item.StreamSettings,
-			Rules: append([]string(nil), item.Rules...),
+			Rules:         append([]string(nil), item.Rules...),
+			IPRules:       append([]string(nil), item.IpRules...),
+			ProtocolRules: append([]string(nil), item.ProtocolRules...),
 		})
 	}
 
@@ -120,6 +122,8 @@ func serverConfigResponseFromProtobuf(message *serverv1.QueryServerProtocolConfi
 		IPStrategy:             message.Data.IpStrategy,
 		DNS:                    &dns,
 		Block:                  ptrToSlice(append([]string(nil), message.Data.Block...)),
+		BlockIPs:               ptrToSlice(append([]string(nil), message.Data.BlockIps...)),
+		BlockProtocols:         ptrToSlice(append([]string(nil), message.Data.BlockProtocols...)),
 		Outbound:               &outbound,
 		Protocols:              &protocols,
 		Total:                  int(message.Data.Total),

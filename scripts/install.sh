@@ -27,6 +27,48 @@ release_fetch() {
     (cd "$dir" && sha256sum -c "$asset.sha256") || { rm -f "$dir/$asset"; return 1; }
 }
 
+geodata_lock_value() {
+    local lock=$1 key=$2
+    awk -F= -v key="$key" '$1 == key { n++; value=substr($0, length(key)+2) } END { if (n != 1 || value == "") exit 1; print value }' "$lock"
+}
+
+verify_geodata_bundle() {
+    local dir=$1 lock repository commit geoip_digest geosite_digest file digest
+    lock=${2:-$dir/geodata.lock}
+    [[ -f $lock && ! -L $lock ]] || { echo 'geodata lock is missing or unsafe' >&2; return 1; }
+    repository=$(geodata_lock_value "$lock" repository) || return 1
+    commit=$(geodata_lock_value "$lock" commit) || return 1
+    geoip_digest=$(geodata_lock_value "$lock" geoip_sha256) || return 1
+    geosite_digest=$(geodata_lock_value "$lock" geosite_sha256) || return 1
+    [[ $repository =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ && $commit =~ ^[a-f0-9]{40}$ ]] || return 1
+    for file in geoip.dat geosite.dat; do
+        [[ -f $dir/$file && ! -L $dir/$file && -s $dir/$file ]] || return 1
+        if [[ $file == geoip.dat ]]; then digest=$geoip_digest; else digest=$geosite_digest; fi
+        [[ $digest =~ ^[a-f0-9]{64}$ ]] || return 1
+        printf '%s  %s\n' "$digest" "$file" | (cd "$dir" && sha256sum -c -) || return 1
+    done
+}
+
+install_geodata_payload() {
+    local source=$1 destination=$2 file
+    verify_geodata_bundle "$source" "$source/geodata.lock" || return 1
+    mkdir -p "$destination" || return 1
+    for file in geoip.dat geosite.dat geodata.lock; do install -m 0644 "$source/$file" "$destination/$file" || return 1; done
+    verify_geodata_bundle "$destination" "$destination/geodata.lock"
+}
+
+extract_runtime_payload() {
+    local archive=$1 destination=$2 entries file
+    mkdir -p "$destination" || return 1
+    entries="$destination/.entries"
+    unzip -Z1 "$archive" > "$entries" || return 1
+    awk '$0 ~ /\// || $0 == ".." { bad=1 } END { exit bad }' "$entries" || return 1
+    unzip -q "$archive" -d "$destination" || return 1
+    rm -f "$entries"
+    for file in ppnode geoip.dat geosite.dat geodata.lock; do [[ -f $destination/$file && ! -L $destination/$file ]] || return 1; done
+    verify_geodata_bundle "$destination" "$destination/geodata.lock"
+}
+
 # The installed manager sources these same helpers; sourcing has no host effects.
 if [[ ${BASH_SOURCE[0]} != "$0" ]]; then return 0; fi
 
@@ -64,11 +106,8 @@ if [[ -n $api_host || -n $server_id || -n $secret_key ]]; then
 fi
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 release_fetch "$asset" "$tmp"
-unzip -Z1 "$tmp/$asset" > "$tmp/entries"
-# Release ZIPs are flat files. Reject path traversal, subdirectories and absolute paths.
-awk '$0 ~ /\// || $0 == ".." { bad=1 } END { exit bad }' "$tmp/entries"
-unzip -q "$tmp/$asset" -d "$tmp/extract"
-for file in ppnode config.yml ppnode.sh install.sh geoip.dat geosite.dat; do [[ -f $tmp/extract/$file && ! -L $tmp/extract/$file ]]; done
+extract_runtime_payload "$tmp/$asset" "$tmp/extract"
+for file in config.yml ppnode.sh install.sh; do [[ -f $tmp/extract/$file && ! -L $tmp/extract/$file ]]; done
 install_dir=/usr/local/PPanel-node
 mkdir -p "$install_dir" /etc/PPanel-node
 if [[ -f $install_dir/ppnode ]]; then cp -p "$install_dir/ppnode" "$install_dir/ppnode.previous"; fi
@@ -80,7 +119,8 @@ fi
 install -m 0755 "$tmp/extract/ppnode" "$install_dir/ppnode"
 install -m 0644 "$tmp/extract/install.sh" "$install_dir/install.sh"
 install -m 0755 "$tmp/extract/ppnode.sh" /usr/bin/ppnode
-for file in geoip.dat geosite.dat; do install -m 0644 "$tmp/extract/$file" "/etc/PPanel-node/$file"; done
+# Xray searches beside the executable by default; keep data and provenance there.
+install_geodata_payload "$tmp/extract" "$install_dir"
 printf '%s\n' "$RELEASE_REPO" > /etc/PPanel-node/release-repo
 # Existing credentials/configuration are never overwritten by an update.
 if [[ ! -e /etc/PPanel-node/config.yml ]]; then

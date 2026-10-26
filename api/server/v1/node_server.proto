@@ -138,6 +138,8 @@ message Outbound {
   string settings = 39;
   string stream_settings = 40;
   repeated string rules = 41;
+  repeated string ip_rules = 42;
+  repeated string protocol_rules = 43;
 }
 
 // ServerProtocol is PPanel's normalized, flat protocol configuration. The
@@ -225,6 +227,8 @@ message QueryServerProtocolConfigData {
   repeated Outbound outbound = 7;
   repeated ServerProtocol protocols = 8;
   int64 total = 9;
+  repeated string block_ips = 10;
+  repeated string block_protocols = 11;
 }
 
 message QueryServerProtocolConfigResponse {

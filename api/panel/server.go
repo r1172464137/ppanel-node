@@ -25,6 +25,8 @@ type Data struct {
 	IPStrategy             string      `json:"ip_strategy"`
 	DNS                    *[]DNSItem  `json:"dns"`
 	Block                  *[]string   `json:"block"`
+	BlockIPs               *[]string   `json:"block_ips"`
+	BlockProtocols         *[]string   `json:"block_protocols"`
 	Outbound               *[]Outbound `json:"outbound"`
 	Protocols              *[]Protocol `json:"protocols"`
 	Total                  int         `json:"total"`
@@ -67,6 +69,8 @@ type Outbound struct {
 	Settings             string   `json:"settings"`
 	StreamSettings       string   `json:"stream_settings"`
 	Rules                []string `json:"rules"`
+	IPRules              []string `json:"ip_rules"`
+	ProtocolRules        []string `json:"protocol_rules"`
 }
 
 type Protocol struct {

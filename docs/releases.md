@@ -24,17 +24,22 @@ The updater:
 1. Requires existing `/usr/local/PPanel-node/ppnode`, `/etc/PPanel-node/config.yml`
    and `PPanel-node.service`; it is not an installer.
 2. Downloads and verifies before any service changes, then checks the new binary's version.
-3. Backs up **only the current binary** beside it as `ppnode.before-v1.1.14-<UTC>-<pid>`.
-4. Atomically replaces the binary and restarts **only `PPanel-node.service`**.
-5. Requires a stable, active MainPID whose `/proc/<pid>/exe` resolves to the exact
-   installed binary, has the same bytes, and reports `PPanel-node 1.1.14`.
-6. On failure, restores the binary atomically and restarts the prior service (or
-   returns it to stopped if previously inactive). Failures remain nonzero; if the
-   rollback restart fails it prints an explicit warning and the backup path.
+3. Verifies the archive's `geoip.dat` and `geosite.dat` against its independently
+   pinned `geodata.lock` before changing the installation.
+4. Backs up the current binary, both geodata files, and provenance lock in a
+   timestamped payload directory under `/usr/local/PPanel-node`.
+5. Stages and replaces the complete runtime payload beside the executable, then
+   restarts **only `PPanel-node.service`**.
+6. Requires a stable, active MainPID whose `/proc/<pid>/exe` resolves to the exact
+   installed binary, has the same bytes, reports the requested version, and whose
+   installed geodata still matches the provenance lock.
+7. On failure, restores the complete prior payload and restarts the prior service
+   (or returns it to stopped if previously inactive). Missing legacy geodata is
+   restored as missing rather than preserving partially installed new files.
 
-It does **not** write config, certificate/geodata files or the unit file, invoke
+It does **not** write config, certificate files or the unit file, invoke
 `daemon-reload`, re-register the service, wipe state, or kill unrelated processes.
-This is binary-only: it also deliberately leaves an old management script alone.
+It deliberately leaves an old management script alone.
 **Do not use an old `ppnode update`/`update_shell` command that still downloads
 perfect-panel upstream.** Reuse the verified command above, or separately adopt
 this release's verified `ppnode.sh` manager and bundled `install.sh` helper.
@@ -75,6 +80,21 @@ and geodata. Geodata is fetched and checked once per release before fan-out.
 Release-level assets also include `install.sh`, `ppnode.sh`, `update.sh`, `config.yml`
 and a single SHA256SUMS over every archive and script/template.
 
+Geodata input is immutable and auditable in `.github/build/geodata.lock`:
+
+- repository: `Loyalsoldier/v2ray-rules-dat`
+- commit: `2f3c0d60335a73f6791273b664388addff2fde52`
+- `geoip.dat`: `a6271d3c96361d96156e6d3f7cf1550ef21b00d2f951deb772f464db91e89ac5`
+- `geosite.dat`: `e16ee9af893247f9c8b15c5259e5c0a6ae491b85ee351c22f1954e696ebb8997`
+
+`scripts/fetch-geodata.sh` downloads only that exact commit and verifies these
+checked-in independent digests. Release recovery with `--clobber` therefore
+rebuilds identical geodata for the same source/tag rather than consulting a
+mutable `release` branch. Every ZIP includes the lock. Install/update place both
+data files and the lock beside `/usr/local/PPanel-node/ppnode`, which is Xray's
+default executable-relative asset search path. The Docker image uses the same
+path and immutable fetch helper.
+
 The optional Docker workflow is separate (manual or a user-published Release,
 read-only builds on PRs). A Release created with GITHUB_TOKEN does not recursively
 trigger other workflows; manually dispatch the optional image workflow if wanted.
@@ -84,6 +104,8 @@ Local checks (no live installation or real node fixtures):
 
 ```bash
 bash scripts/test-release.sh
-# Production checksum/version/MainPID/rollback helpers are tested with local mocks.
-go test -race ./api/panel ./core/inbound ./core -run 'TestRealityXver|TestValidateServerConfig' -count=1
+bash scripts/fetch-geodata.sh /tmp/ppnode-geodata
+PPNODE_TEST_GEODATA=/tmp/ppnode-geodata go test -race -timeout 10m ./api/panel ./core/outbound ./core/inbound ./core -count=1
+# The real-core geodata test copies itself beside the assets and removes all
+# Xray asset environment overrides before starting the subprocess.
 ```

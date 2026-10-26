@@ -3,7 +3,11 @@ package outbound
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
+	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
 	"github.com/xtls/xray-core/app/dns"
@@ -26,6 +30,11 @@ type BuildResult struct {
 }
 
 func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult, error) {
+	if err := validateRouteConfigRawLimits(serverconfig.Data); err != nil {
+		return nil, err
+	}
+	structuredBudget := routeRuleBudget{}
+
 	var ipStrategy string
 	if serverconfig.Data.IPStrategy != "" {
 		switch serverconfig.Data.IPStrategy {
@@ -44,7 +53,9 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 		}
 	}
 	dnsConfig := serverconfig.Data.DNS
-	blockList := serverconfig.Data.Block
+	blockDomains := serverconfig.Data.Block
+	blockIPs := serverconfig.Data.BlockIPs
+	blockProtocols := serverconfig.Data.BlockProtocols
 	outboundList := serverconfig.Data.Outbound
 
 	//default dns
@@ -65,24 +76,10 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 
 	//custom dns
 	if dnsConfig != nil {
-		for _, item := range *dnsConfig {
-			var domains []string
-			for _, domainitem := range item.Domains {
-				data := strings.Split(domainitem, ":")
-				if len(data) == 2 {
-					switch data[0] {
-					case "keyword":
-						domains = append(domains, data[1])
-					case "suffix":
-						domains = append(domains, "domain:"+data[1])
-					case "regex":
-						domains = append(domains, "regexp:"+data[1])
-					default:
-						domains = append(domains, data[1])
-					}
-				} else {
-					domains = append(domains, "full:"+domainitem)
-				}
+		for i, item := range *dnsConfig {
+			domains, err := buildDomainRules(item.Domains)
+			if err != nil {
+				return nil, fmt.Errorf("invalid DNS resolver %d domain rules: %w", i+1, err)
 			}
 			/*switch item.Proto {
 			case "udp":
@@ -127,24 +124,76 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 		DomainStrategy: &domainStrategy,
 	}
 
-	//custom block
-	if blockList != nil {
-		domains := buildRouteDomains(*blockList)
-		if len(domains) > 0 {
-			rule := map[string]interface{}{
-				"domain":      domains,
-				"outboundTag": BlockTag,
-			}
-			rawRule, err := json.Marshal(rule)
-			if err == nil {
-				coreRouterConfig.RuleList = append(coreRouterConfig.RuleList, rawRule)
-			}
+	// Global block categories are separate OR rules. Their fixed order also
+	// guarantees that every block rule wins over every custom outbound rule.
+	if blockProtocols != nil {
+		protocols, err := buildProtocolRules(*blockProtocols)
+		if err != nil {
+			return nil, fmt.Errorf("invalid global block protocol rules: %w", err)
+		}
+		if err := structuredBudget.add("block_protocols", protocols); err != nil {
+			return nil, err
+		}
+		if err := appendRouteRule(coreRouterConfig, "protocol", protocols, BlockTag); err != nil {
+			return nil, err
+		}
+	}
+	if blockIPs != nil {
+		ips, err := buildIPRules(*blockIPs)
+		if err != nil {
+			return nil, fmt.Errorf("invalid global block IP rules: %w", err)
+		}
+		if err := structuredBudget.add("block_ips", ips); err != nil {
+			return nil, err
+		}
+		if err := appendRouteRule(coreRouterConfig, "ip", ips, BlockTag); err != nil {
+			return nil, err
+		}
+	}
+	if blockDomains != nil {
+		domains, err := buildDomainRules(*blockDomains)
+		if err != nil {
+			return nil, fmt.Errorf("invalid global block domain rules: %w", err)
+		}
+		if err := structuredBudget.add("block", domains); err != nil {
+			return nil, err
+		}
+		if err := appendRouteRule(coreRouterConfig, "domain", domains, BlockTag); err != nil {
+			return nil, err
 		}
 	}
 
-	//custom outbound
+	// Keep each outbound's three OR rules together, in panel list order.
 	if outboundList != nil {
 		for _, outbounditem := range *outboundList {
+			// Parse every rule before protocol support is considered. This is
+			// intentionally fail-closed: malformed rules on a legacy/unsupported
+			// outbound must not be silently accepted and later become active.
+			domains, err := buildDomainRules(outbounditem.Rules)
+			if err != nil {
+				return nil, fmt.Errorf("invalid outbound %q domain rules: %w", outbounditem.Name, err)
+			}
+			ips, err := buildIPRules(outbounditem.IPRules)
+			if err != nil {
+				return nil, fmt.Errorf("invalid outbound %q IP rules: %w", outbounditem.Name, err)
+			}
+			protocols, err := buildProtocolRules(outbounditem.ProtocolRules)
+			if err != nil {
+				return nil, fmt.Errorf("invalid outbound %q protocol rules: %w", outbounditem.Name, err)
+			}
+			for _, group := range []struct {
+				field  string
+				values []string
+			}{
+				{field: "rules", values: domains},
+				{field: "ip_rules", values: ips},
+				{field: "protocol_rules", values: protocols},
+			} {
+				if err := structuredBudget.add(fmt.Sprintf("outbound %q %s", outbounditem.Name, group.field), group.values); err != nil {
+					return nil, err
+				}
+			}
+
 			protocol, rawSettings, err := buildOutboundSettings(outbounditem)
 			if err != nil {
 				return nil, err
@@ -162,20 +211,20 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 				Settings:      rawSettings,
 				StreamSetting: streamSettings,
 			}
-			// Outbound rules
-			domains := buildRouteDomains(outbounditem.Rules)
 			customOutbound, err := outbound.Build()
 			if err != nil {
 				return nil, fmt.Errorf("build outbound %q (%s): %w", outbounditem.Name, protocol, err)
 			}
-			if len(domains) > 0 {
-				rule := map[string]interface{}{
-					"domain":      domains,
-					"outboundTag": customOutbound.Tag,
-				}
-				rawRule, err := json.Marshal(rule)
-				if err == nil {
-					coreRouterConfig.RuleList = append(coreRouterConfig.RuleList, rawRule)
+			for _, rule := range []struct {
+				field  string
+				values []string
+			}{
+				{field: "domain", values: domains},
+				{field: "ip", values: ips},
+				{field: "protocol", values: protocols},
+			} {
+				if err := appendRouteRule(coreRouterConfig, rule.field, rule.values, customOutbound.Tag); err != nil {
+					return nil, err
 				}
 			}
 			if hasOutboundWithTag(coreOutboundConfig, customOutbound.Tag) {
@@ -209,44 +258,318 @@ func hasOutboundWithTag(list []*core.OutboundHandlerConfig, tag string) bool {
 	return false
 }
 
-func buildRouteDomains(rules []string) []string {
-	domains := make([]string, 0, len(rules))
-	seen := make(map[string]struct{}, len(rules))
-	for _, rule := range rules {
-		rule = strings.TrimSpace(rule)
+const (
+	// Canonical limits are shared with the backend/frontend contract.
+	MaxRouteRules               = 1024
+	MaxRouteRuleBytes           = 4096
+	MaxNodeOutbounds            = 128
+	MaxStructuredAggregateRules = 4096
+	MaxStructuredAggregateBytes = 48 * 1024
+	// Raw bounds are node-only pre-normalization DoS guards. They deliberately
+	// permit duplicates above the canonical unique-value limits.
+	MaxRawRouteEntriesPerCategory = 4096
+	MaxRawStructuredRouteEntries  = 8192
+)
+
+var (
+	geoIPLabelPattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`)
+	geoSiteLabelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.!-]*(?:@[A-Za-z0-9_!-]+)*$`)
+	domainLabelPattern  = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
+)
+
+func appendRouteRule(config *coreConf.RouterConfig, field string, values []string, outboundTag string) error {
+	if len(values) == 0 {
+		return nil
+	}
+	rawRule, err := json.Marshal(map[string]interface{}{
+		field:         values,
+		"outboundTag": outboundTag,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal %s route rule for outbound %q: %w", field, outboundTag, err)
+	}
+	config.RuleList = append(config.RuleList, rawRule)
+	return nil
+}
+
+type ruleNormalizer func(string) (string, error)
+
+func normalizeRouteRules(category string, rules []string, normalize ruleNormalizer) ([]string, error) {
+	if len(rules) > MaxRawRouteEntriesPerCategory {
+		return nil, fmt.Errorf("%s rules contain more than %d raw entries", category, MaxRawRouteEntriesPerCategory)
+	}
+	capacity := len(rules)
+	if capacity > MaxRouteRules {
+		capacity = MaxRouteRules
+	}
+	result := make([]string, 0, capacity)
+	seen := make(map[string]struct{}, capacity)
+	for i, rawRule := range rules {
+		rule := strings.TrimSpace(rawRule)
 		if rule == "" {
 			continue
 		}
-
-		value := ""
-		data := strings.SplitN(rule, ":", 2)
-		if len(data) == 2 {
-			data[0] = strings.TrimSpace(data[0])
-			data[1] = strings.TrimSpace(data[1])
-			if data[1] == "" {
-				continue
-			}
-			switch data[0] {
-			case "keyword":
-				value = data[1]
-			case "suffix":
-				value = "domain:" + data[1]
-			case "regex":
-				value = "regexp:" + data[1]
-			default:
-				value = data[1]
-			}
-		} else {
-			value = "full:" + rule
+		if !utf8.ValidString(rule) {
+			return nil, fmt.Errorf("%s rule %d is not valid UTF-8", category, i+1)
+		}
+		if strings.IndexFunc(rule, unicode.IsControl) >= 0 {
+			return nil, fmt.Errorf("%s rule %d (%q) contains a control character or embedded newline", category, i+1, rawRule)
+		}
+		if len(rule) > MaxRouteRuleBytes {
+			return nil, fmt.Errorf("%s rule %d exceeds %d raw bytes", category, i+1, MaxRouteRuleBytes)
 		}
 
-		if _, ok := seen[value]; ok {
+		canonical, err := normalize(rule)
+		if err != nil {
+			return nil, fmt.Errorf("%s rule %d (%q): %w", category, i+1, rawRule, err)
+		}
+		if len(canonical) > MaxRouteRuleBytes {
+			return nil, fmt.Errorf("%s rule %d canonical value exceeds %d bytes", category, i+1, MaxRouteRuleBytes)
+		}
+		if _, ok := seen[canonical]; ok {
 			continue
 		}
-		seen[value] = struct{}{}
-		domains = append(domains, value)
+		seen[canonical] = struct{}{}
+		result = append(result, canonical)
+		if len(result) > MaxRouteRules {
+			return nil, fmt.Errorf("%s rules contain more than %d canonical unique values", category, MaxRouteRules)
+		}
 	}
-	return domains
+	return result, nil
+}
+
+func buildDomainRules(rules []string) ([]string, error) {
+	return normalizeRouteRules("domain", rules, normalizeDomainRule)
+}
+
+func normalizeDomainRule(rule string) (string, error) {
+	// Detect bare IPv6 before interpreting its first colon as a rule prefix.
+	if prefix, err := netip.ParsePrefix(rule); err == nil && prefix.IsValid() {
+		return "", fmt.Errorf("%q is an IP prefix and belongs in an IP rule field", rule)
+	}
+	if address, err := netip.ParseAddr(rule); err == nil && address.IsValid() {
+		return "", fmt.Errorf("%q is an IP address and belongs in an IP rule field", rule)
+	}
+	prefix, value, hasPrefix := strings.Cut(rule, ":")
+	if !hasPrefix {
+		canonical, err := normalizeDomainValue(rule, "exact domain")
+		if err != nil {
+			return "", err
+		}
+		return "full:" + canonical, nil
+	}
+
+	switch strings.ToLower(prefix) {
+	case "full":
+		canonical, err := normalizeDomainValue(value, "full domain")
+		if err != nil {
+			return "", err
+		}
+		return "full:" + canonical, nil
+	case "keyword":
+		if value == "" {
+			return "", fmt.Errorf("keyword is empty")
+		}
+		if strings.IndexFunc(value, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+			return "", fmt.Errorf("keyword must not contain whitespace or control characters")
+		}
+		return "keyword:" + value, nil
+	case "suffix", "domain":
+		canonical, err := normalizeDomainValue(value, "domain suffix")
+		if err != nil {
+			return "", err
+		}
+		return "domain:" + canonical, nil
+	case "regex", "regexp":
+		if value == "" {
+			return "", fmt.Errorf("regular expression is empty")
+		}
+		if err := validateRE2(value); err != nil {
+			return "", err
+		}
+		return "regexp:" + value, nil
+	case "geosite":
+		if len(value) > 253 || !geoSiteLabelPattern.MatchString(value) {
+			return "", fmt.Errorf("unsafe geosite label %q", value)
+		}
+		return "geosite:" + value, nil
+	default:
+		return "", fmt.Errorf("unknown prefix %q", prefix)
+	}
+}
+
+func normalizeDomainValue(value, kind string) (string, error) {
+	original := value
+	if value == "" {
+		return "", fmt.Errorf("%s is empty", kind)
+	}
+	if strings.HasSuffix(value, ".") {
+		value = strings.TrimSuffix(value, ".")
+		if strings.HasSuffix(value, ".") {
+			return "", fmt.Errorf("%q has repeated trailing DNS root dots", original)
+		}
+	}
+	if value == "" {
+		return "", fmt.Errorf("%s is empty after trimming the DNS root dot", kind)
+	}
+	if strings.EqualFold(value, "bittorrent") {
+		return "", fmt.Errorf("bittorrent is a protocol and belongs in a protocol_rules/block_protocols field")
+	}
+	if prefix, err := netip.ParsePrefix(value); err == nil && prefix.IsValid() {
+		return "", fmt.Errorf("%q is an IP prefix and belongs in an IP rule field", value)
+	}
+	if address, err := netip.ParseAddr(value); err == nil && address.IsValid() {
+		return "", fmt.Errorf("%q is an IP address and belongs in an IP rule field", value)
+	}
+	if strings.Contains(value, "/") {
+		return "", fmt.Errorf("%q looks like an IP prefix and belongs in an IP rule field", value)
+	}
+	if len(value) > 253 {
+		return "", fmt.Errorf("%s exceeds 253 bytes", kind)
+	}
+	if strings.ContainsAny(value, " \t\r\n:#") {
+		return "", fmt.Errorf("%q is not a valid %s", value, kind)
+	}
+	for _, label := range strings.Split(value, ".") {
+		if !domainLabelPattern.MatchString(label) {
+			return "", fmt.Errorf("domain label %q in %q is malformed", label, value)
+		}
+	}
+	return value, nil
+}
+
+func validateRE2(expression string) error {
+	if _, err := regexp.Compile(expression); err != nil {
+		return fmt.Errorf("regular expression is not supported by RE2: %w", err)
+	}
+	return nil
+}
+
+func buildIPRules(rules []string) ([]string, error) {
+	return normalizeRouteRules("IP", rules, normalizeIPRule)
+}
+
+func normalizeIPRule(rule string) (string, error) {
+	if prefix, err := netip.ParsePrefix(rule); err == nil {
+		if prefix.Addr().Zone() != "" {
+			return "", fmt.Errorf("zoned IP prefixes are not supported")
+		}
+		return prefix.Masked().String(), nil
+	}
+	if address, err := netip.ParseAddr(rule); err == nil {
+		if address.Zone() != "" {
+			return "", fmt.Errorf("zoned IP addresses are not supported")
+		}
+		return address.String(), nil
+	}
+
+	prefix, value, hasPrefix := strings.Cut(rule, ":")
+	if hasPrefix && strings.EqualFold(prefix, "geoip") {
+		if len(value) > 253 || !geoIPLabelPattern.MatchString(value) {
+			return "", fmt.Errorf("unsafe geoip label %q", value)
+		}
+		return "geoip:" + value, nil
+	}
+	if strings.Contains(rule, "/") {
+		return "", fmt.Errorf("%q is not a valid CIDR prefix", rule)
+	}
+	if hasPrefix {
+		return "", fmt.Errorf("unknown IP rule prefix %q", prefix)
+	}
+	return "", fmt.Errorf("%q is not a valid IP address or CIDR prefix", rule)
+}
+
+func buildProtocolRules(rules []string) ([]string, error) {
+	return normalizeRouteRules("protocol", rules, normalizeProtocolRule)
+}
+
+func normalizeProtocolRule(rule string) (string, error) {
+	canonical := strings.ToLower(rule)
+	if canonical != "bittorrent" {
+		return "", fmt.Errorf("unsupported protocol %q (allowed: bittorrent)", rule)
+	}
+	return canonical, nil
+}
+
+type routeRuleBudget struct {
+	count int
+	bytes int
+}
+
+func (b *routeRuleBudget) add(field string, canonical []string) error {
+	for _, rule := range canonical {
+		b.count++
+		b.bytes += len(rule)
+		if b.count > MaxStructuredAggregateRules {
+			return fmt.Errorf("structured route rules exceed %d canonical values at %s", MaxStructuredAggregateRules, field)
+		}
+		if b.bytes > MaxStructuredAggregateBytes {
+			return fmt.Errorf("structured route rules exceed %d canonical payload bytes at %s", MaxStructuredAggregateBytes, field)
+		}
+	}
+	return nil
+}
+
+func validateRouteConfigRawLimits(data *panel.Data) error {
+	if data == nil {
+		return fmt.Errorf("server configuration data is empty")
+	}
+	if data.Outbound != nil && len(*data.Outbound) > MaxNodeOutbounds {
+		return fmt.Errorf("structured configuration contains more than %d outbounds", MaxNodeOutbounds)
+	}
+	rawStructured := 0
+	check := func(field string, rules []string, structured bool) error {
+		if len(rules) > MaxRawRouteEntriesPerCategory {
+			return fmt.Errorf("%s contains more than %d raw entries", field, MaxRawRouteEntriesPerCategory)
+		}
+		if structured {
+			rawStructured += len(rules)
+			if rawStructured > MaxRawStructuredRouteEntries {
+				return fmt.Errorf("structured route configuration contains more than %d raw entries at %s", MaxRawStructuredRouteEntries, field)
+			}
+		}
+		return nil
+	}
+	// DNS uses the shared domain parser but is intentionally excluded from the
+	// structured block/outbound aggregate contract.
+	if data.DNS != nil {
+		for i, resolver := range *data.DNS {
+			if err := check(fmt.Sprintf("dns[%d].domains", i), resolver.Domains, false); err != nil {
+				return err
+			}
+		}
+	}
+	for _, group := range []struct {
+		field string
+		rules *[]string
+	}{
+		{field: "block", rules: data.Block},
+		{field: "block_ips", rules: data.BlockIPs},
+		{field: "block_protocols", rules: data.BlockProtocols},
+	} {
+		if group.rules != nil {
+			if err := check(group.field, *group.rules, true); err != nil {
+				return err
+			}
+		}
+	}
+	if data.Outbound != nil {
+		for i, outbound := range *data.Outbound {
+			for _, group := range []struct {
+				field string
+				rules []string
+			}{
+				{field: "rules", rules: outbound.Rules},
+				{field: "ip_rules", rules: outbound.IPRules},
+				{field: "protocol_rules", rules: outbound.ProtocolRules},
+			} {
+				if err := check(fmt.Sprintf("outbound[%d].%s", i, group.field), group.rules, true); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func normalizeOutboundProtocol(protocol string) string {

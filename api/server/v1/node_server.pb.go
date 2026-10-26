@@ -809,6 +809,8 @@ type Outbound struct {
 	Settings                string                 `protobuf:"bytes,39,opt,name=settings,proto3" json:"settings,omitempty"`
 	StreamSettings          string                 `protobuf:"bytes,40,opt,name=stream_settings,json=streamSettings,proto3" json:"stream_settings,omitempty"`
 	Rules                   []string               `protobuf:"bytes,41,rep,name=rules,proto3" json:"rules,omitempty"`
+	IpRules                 []string               `protobuf:"bytes,42,rep,name=ip_rules,json=ipRules,proto3" json:"ip_rules,omitempty"`
+	ProtocolRules           []string               `protobuf:"bytes,43,rep,name=protocol_rules,json=protocolRules,proto3" json:"protocol_rules,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -1126,6 +1128,20 @@ func (x *Outbound) GetStreamSettings() string {
 func (x *Outbound) GetRules() []string {
 	if x != nil {
 		return x.Rules
+	}
+	return nil
+}
+
+func (x *Outbound) GetIpRules() []string {
+	if x != nil {
+		return x.IpRules
+	}
+	return nil
+}
+
+func (x *Outbound) GetProtocolRules() []string {
+	if x != nil {
+		return x.ProtocolRules
 	}
 	return nil
 }
@@ -1711,6 +1727,8 @@ type QueryServerProtocolConfigData struct {
 	Outbound               []*Outbound            `protobuf:"bytes,7,rep,name=outbound,proto3" json:"outbound,omitempty"`
 	Protocols              []*ServerProtocol      `protobuf:"bytes,8,rep,name=protocols,proto3" json:"protocols,omitempty"`
 	Total                  int64                  `protobuf:"varint,9,opt,name=total,proto3" json:"total,omitempty"`
+	BlockIps               []string               `protobuf:"bytes,10,rep,name=block_ips,json=blockIps,proto3" json:"block_ips,omitempty"`
+	BlockProtocols         []string               `protobuf:"bytes,11,rep,name=block_protocols,json=blockProtocols,proto3" json:"block_protocols,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -1806,6 +1824,20 @@ func (x *QueryServerProtocolConfigData) GetTotal() int64 {
 		return x.Total
 	}
 	return 0
+}
+
+func (x *QueryServerProtocolConfigData) GetBlockIps() []string {
+	if x != nil {
+		return x.BlockIps
+	}
+	return nil
+}
+
+func (x *QueryServerProtocolConfigData) GetBlockProtocols() []string {
+	if x != nil {
+		return x.BlockProtocols
+	}
+	return nil
 }
 
 type QueryServerProtocolConfigResponse struct {
@@ -1923,7 +1955,7 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1f\n" +
 	"\vserver_name\x18\x03 \x01(\tR\n" +
 	"serverName\x12\x18\n" +
-	"\adomains\x18\x04 \x03(\tR\adomains\"\x9d\n" +
+	"\adomains\x18\x04 \x03(\tR\adomains\"\xdf\n" +
 	"\n" +
 	"\bOutbound\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
@@ -1974,7 +2006,9 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\bspider_x\x18& \x01(\tR\aspiderX\x12\x1a\n" +
 	"\bsettings\x18' \x01(\tR\bsettings\x12'\n" +
 	"\x0fstream_settings\x18( \x01(\tR\x0estreamSettings\x12\x14\n" +
-	"\x05rules\x18) \x03(\tR\x05rules\"\x8a\x12\n" +
+	"\x05rules\x18) \x03(\tR\x05rules\x12\x19\n" +
+	"\bip_rules\x18* \x03(\tR\aipRules\x12%\n" +
+	"\x0eprotocol_rules\x18+ \x03(\tR\rprotocolRules\"\x8a\x12\n" +
 	"\x0eServerProtocol\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\rR\x04port\x12\x18\n" +
@@ -2053,7 +2087,7 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\x11cert_dns_provider\x18@ \x01(\tR\x0fcertDnsProvider\x12 \n" +
 	"\fcert_dns_env\x18A \x01(\tR\n" +
 	"certDnsEnv\x12!\n" +
-	"\freality_xver\x18B \x01(\rR\vrealityXver\"\xa8\x03\n" +
+	"\freality_xver\x18B \x01(\rR\vrealityXver\"\xee\x03\n" +
 	"\x1dQueryServerProtocolConfigData\x128\n" +
 	"\x18traffic_report_threshold\x18\x01 \x01(\x03R\x16trafficReportThreshold\x12#\n" +
 	"\rpush_interval\x18\x02 \x01(\x03R\fpushInterval\x12#\n" +
@@ -2064,7 +2098,10 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\x05block\x18\x06 \x03(\tR\x05block\x12;\n" +
 	"\boutbound\x18\a \x03(\v2\x1f.ppanel.node.server.v1.OutboundR\boutbound\x12C\n" +
 	"\tprotocols\x18\b \x03(\v2%.ppanel.node.server.v1.ServerProtocolR\tprotocols\x12\x14\n" +
-	"\x05total\x18\t \x01(\x03R\x05total\"\x9b\x01\n" +
+	"\x05total\x18\t \x01(\x03R\x05total\x12\x1b\n" +
+	"\tblock_ips\x18\n" +
+	" \x03(\tR\bblockIps\x12'\n" +
+	"\x0fblock_protocols\x18\v \x03(\tR\x0eblockProtocols\"\x9b\x01\n" +
 	"!QueryServerProtocolConfigResponse\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\rR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12H\n" +

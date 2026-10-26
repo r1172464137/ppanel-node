@@ -28,10 +28,14 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.27.3'
-      - name: Installer helpers and focused contract tests
+      - name: Fetch pinned geodata for real-core route tests
+        run: |
+          bash scripts/fetch-geodata.sh "$RUNNER_TEMP/geodata"
+          echo "PPNODE_TEST_GEODATA=$RUNNER_TEMP/geodata" >> "$GITHUB_ENV"
+      - name: Installer helpers and node contract/data-plane tests
         run: |
           bash scripts/test-release.sh
-          go test -race -timeout 5m ./api/panel ./core/inbound ./core -run 'TestRealityXver|TestBuild|TestShouldConfigureTLS|TestApplyTLS|TestValidateServerConfig' -count=1
+          go test -race -timeout 10m ./api/panel ./core/outbound ./core/inbound ./core -count=1
 
   prepare:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
@@ -62,14 +66,8 @@ jobs:
           [[ $TAG != *-* ]] || prerelease=true
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "matrix=$(jq -c . .github/build/release-targets.json)" >> "$GITHUB_OUTPUT"
-      - name: Fetch geodata once for this release (fail on HTTP errors)
-        run: |
-          mkdir -p geodata
-          for file in geoip.dat geosite.dat; do
-            curl --proto '=https' --tlsv1.2 -fSL --retry 3 -o "geodata/$file" "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/$file"
-            curl --proto '=https' --tlsv1.2 -fSL --retry 3 -o "geodata/$file.sha256sum" "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/$file.sha256sum"
-            (cd geodata && sha256sum -c "$file.sha256sum")
-          done
+      - name: Fetch immutable checked geodata once for this release
+        run: bash scripts/fetch-geodata.sh geodata
       - uses: actions/upload-artifact@v4
         with:
           name: release-geodata
