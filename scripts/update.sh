@@ -96,7 +96,7 @@ restore_node_payload() {
 }
 
 if [[ ${BASH_SOURCE[0]} != "$0" ]]; then return 0; fi
-[[ ${1:-} != --help ]] || { echo 'sudo bash update.sh [vX.Y.Z] (default v1.1.14, binary+geodata update with rollback)'; exit 0; }
+[[ ${1:-} != --help ]] || { echo 'sudo bash update.sh [vX.Y.Z] (default v1.1.15, binary+geodata update with rollback)'; exit 0; }
 [[ $# -le 1 ]] || { echo 'at most one version argument is allowed' >&2; exit 1; }
 [[ $EUID == 0 && $(uname -s) == Linux ]] || { echo 'Linux root update required' >&2; exit 1; }
 for cmd in curl sha256sum unzip systemctl readlink cmp install; do command -v "$cmd" >/dev/null; done
@@ -105,7 +105,7 @@ binary=$install_dir/ppnode
 [[ -f $binary && ! -L $binary && -f /etc/PPanel-node/config.yml ]] || { echo 'expected existing binary and configuration not found; refusing to install/reconfigure' >&2; exit 1; }
 unit=$(systemctl show PPanel-node.service --property=FragmentPath --value)
 [[ -n $unit && -f $unit ]] || { echo 'existing PPanel-node.service unit not found' >&2; exit 1; }
-release_init "${PPNODE_RELEASE_REPO:-r1172464137/ppanel-node}" "${1:-${PPNODE_VERSION:-v1.1.14}}"
+release_init "${PPNODE_RELEASE_REPO:-r1172464137/ppanel-node}" "${1:-${PPNODE_VERSION:-v1.1.15}}"
 version=${RELEASE_TAG#v}
 case $(uname -m) in
     x86_64|amd64) arch=64 ;;

@@ -9,14 +9,14 @@ A PPanel node server based on xray-core, modified from v2node.
 
 ```
 # Download install.sh and SHA256SUMS from this fork's release, verify first:
-# https://github.com/r1172464137/ppanel-node/releases/tag/v1.1.14
+# https://github.com/r1172464137/ppanel-node/releases/tag/v1.1.15
 # See docs/releases.md for the verified install/update commands.
 ```
 
 ## 更新已有节点（保留配置与服务）
 
 Use the checksum-verified, binary-only `update.sh` release asset. It defaults to
-this fork's `v1.1.14`, preserves `/etc/PPanel-node/config.yml` and the existing
+this fork's `v1.1.15`, preserves `/etc/PPanel-node/config.yml` and the existing
 `PPanel-node.service`, checks the actual MainPID executable/version, and restores
 the previous binary on failure. **Do not use an old upstream-linked `ppnode update`
 manager after updating only the binary.** See [release/update instructions](docs/releases.md).

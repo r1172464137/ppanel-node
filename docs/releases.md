@@ -2,16 +2,16 @@
 
 Distribution source: **r1172464137/ppanel-node**, never an implicit fallback to upstream.
 The module stays on Go 1.27.1; release builds use Go **1.27.3** with `CGO_ENABLED=0`
-and `-X github.com/perfect-panel/ppanel-node/cmd.version=1.1.14` for tag `v1.1.14`.
+and `-X github.com/perfect-panel/ppanel-node/cmd.version=1.1.15` for tag `v1.1.15`.
 
-## Update an existing production node to v1.1.14
+## Update an existing production node to v1.1.15
 
 Run this command **on the node host**, using your own authorized access. No panel
 change can upgrade the executable on that host. It requires root, Linux, curl,
 GNU sha256sum, unzip and systemd. It supports amd64, arm64 and s390x installers.
 
 ```bash
-sudo bash -c 'set -euo pipefail; d=$(mktemp -d); trap "rm -rf \"$d\"" EXIT; cd "$d"; b=https://github.com/r1172464137/ppanel-node/releases/download/v1.1.14; curl --proto "=https" --tlsv1.2 -fsSL --retry 3 "$b/update.sh" -o update.sh; curl --proto "=https" --tlsv1.2 -fsSL --retry 3 "$b/SHA256SUMS" -o SHA256SUMS; sha256sum --check --ignore-missing SHA256SUMS; bash update.sh v1.1.14'
+sudo bash -c 'set -euo pipefail; d=$(mktemp -d); trap "rm -rf \"$d\"" EXIT; cd "$d"; b=https://github.com/r1172464137/ppanel-node/releases/download/v1.1.15; curl --proto "=https" --tlsv1.2 -fsSL --retry 3 "$b/update.sh" -o update.sh; curl --proto "=https" --tlsv1.2 -fsSL --retry 3 "$b/SHA256SUMS" -o SHA256SUMS; sha256sum --check --ignore-missing SHA256SUMS; bash update.sh v1.1.15'
 ```
 
 The command verifies the updater before executing it. The updater then verifies
@@ -60,7 +60,7 @@ manager; they are never evaluated as shell code.
 Nonprivileged download/verification only:
 
 ```bash
-PPNODE_RELEASE_REPO=r1172464137/ppanel-node bash scripts/install.sh v1.1.14 --download-only ./verified-download
+PPNODE_RELEASE_REPO=r1172464137/ppanel-node bash scripts/install.sh v1.1.15 --download-only ./verified-download
 ```
 
 ## CI and asset contract
