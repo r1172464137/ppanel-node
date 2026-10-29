@@ -85,6 +85,12 @@ GOTOOLCHAIN=go1.27.1 GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -trimpath 
 GOTOOLCHAIN=go1.27.1 go test ./api/panel -run '^$' -bench BenchmarkDecodeUserList -benchmem
 ```
 
+## 路由升级：仅支持 ordered-v1
+
+此版本要求面板始终下发完整 ordered routing v1；旧版节点路由响应将被拒绝，不再兼容旧面板。
+backend、节点和 frontend 须同批停机升级并验证后再启用。协议、状态回执及容量约束见
+[有序节点路由说明](docs/structured-route-rules.md)。
+
 ## 流量与重载
 
 流量通过原子交换取数，未获面板确认的批次会在内存中合并并重试，重载及移除协议时也会保留。
@@ -101,8 +107,8 @@ GOTOOLCHAIN=go1.27.1 go test ./api/panel -run '^$' -bench BenchmarkDecodeUserLis
 内核固定在 `wyx2685/xray-core` 的 `83ad74c46335`
 （`v0.0.0-20260828071630-83ad74c46335`）。
 
-- TUIC 改用新的原生 QUIC 传输，出站配置中的用户标识使用 `id`。
-  上游 TUIC 出站转发仍未实现，不能用于 TUIC 出站中继。
+- TUIC 入站使用新的原生 QUIC 传输；上游 TUIC 出站转发和拨号器尚未实现，
+  节点会在校验时明确拒绝 TUIC 出站及其出站传输配置，避免误报 applied。
 - TUIC 传输模块包含项目内兼容修复，处理认证与首个请求并发时丢失请求的问题，
   详见 [兼容模块说明](core/transport/tuic/README.md)。
 - 节点内部将 REALITY 的 `minClientVer` 固定为 `0.0.0`，覆盖内核默认的 `26.3.27`，

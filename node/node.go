@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/perfect-panel/ppanel-node/common/task"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
 	"github.com/perfect-panel/ppanel-node/common/logx"
+	"github.com/perfect-panel/ppanel-node/common/serverstatus"
 	"github.com/perfect-panel/ppanel-node/conf"
 	vCore "github.com/perfect-panel/ppanel-node/core"
 )
@@ -19,24 +21,36 @@ type Node struct {
 	traffic        *trafficQueue
 	reportPeriodic *task.Task
 	pushInterval   time.Duration
+	statusClient   *panel.ServerClient
 }
 
 func New(core *vCore.XrayCore, config *conf.Conf, serverconfig *panel.ServerConfigResponse) (*Node, error) {
+	if err := vCore.ValidateServerConfig(serverconfig); err != nil {
+		return nil, err
+	}
 	node := &Node{
 		controllers: make([]*Controller, 0, len(*serverconfig.Data.Protocols)),
 		traffic:     newTrafficQueue(),
 	}
-	pushinterval := serverconfig.Data.PushInterval
-	if pushinterval <= 0 {
-		pushinterval = 60
+	if core != nil {
+		node.statusClient = core.Client
 	}
-	pullinterval := serverconfig.Data.PullInterval
-	if pullinterval <= 0 {
-		pullinterval = 60
+	pushDuration, err := panel.IntervalDuration(serverconfig.Data.PushInterval)
+	if err != nil {
+		return nil, err
 	}
-	node.pushInterval = time.Duration(pushinterval) * time.Second
+	pullDuration, err := panel.IntervalDuration(serverconfig.Data.PullInterval)
+	if err != nil {
+		return nil, err
+	}
+	pushinterval := int(pushDuration / time.Second)
+	pullinterval := int(pullDuration / time.Second)
+	node.pushInterval = pushDuration
 	for _, nodeconfig := range *serverconfig.Data.Protocols {
 		if !panel.IsSupportedProtocol(nodeconfig.Type) {
+			if nodeconfig.Enable {
+				return nil, fmt.Errorf("enabled protocol %q is unsupported", nodeconfig.Type)
+			}
 			logx.Component("node").WithField("protocol", nodeconfig.Type).Warn("节点不支持该协议，已跳过对应配置")
 			continue
 		}
@@ -60,6 +74,11 @@ func New(core *vCore.XrayCore, config *conf.Conf, serverconfig *panel.ServerConf
 		})
 		if err != nil {
 			return nil, err
+		}
+		if node.statusClient != nil {
+			if err := node.statusClient.BindNodeClient(p); err != nil {
+				return nil, err
+			}
 		}
 		controller := NewController(core, p, n)
 		controller.traffic = node.traffic
@@ -114,7 +133,10 @@ func (n *Node) Start() error {
 	}
 	if n.reportPeriodic == nil {
 		n.reportPeriodic = &task.Task{Name: "reportNode", Interval: n.pushInterval, Execute: n.report}
-		_ = n.reportPeriodic.Start(false)
+	}
+	if err := n.reportPeriodic.Start(false); err != nil {
+		_ = n.Stop()
+		return fmt.Errorf("start traffic report task: %w", err)
 	}
 	return nil
 }
@@ -134,6 +156,25 @@ func (n *Node) report(ctx context.Context) error {
 		}
 		if c.started {
 			_ = c.reportOnlineAndStatus(ctx, snapshots[c])
+		}
+	}
+	// Certificate-pin reports are the only protocol-specific statuses. The
+	// independent server reporter remains alive through stop/restore failures.
+	if n.statusClient != nil && ctx.Err() == nil {
+		var status *panel.NodeStatus
+		for _, c := range n.controllers {
+			if c != nil && c.started && c.info.Protocol != nil && strings.TrimSpace(c.info.Protocol.CertMode) == "self" {
+				if status == nil {
+					cpu, mem, disk, uptime, err := serverstatus.GetSystemInfo()
+					if err != nil {
+						logx.Component("node").WithError(err).Error("获取系统信息失败")
+					}
+					status = &panel.NodeStatus{CPU: cpu, Mem: mem, Disk: disk, Uptime: uptime}
+				}
+				if err := n.statusClient.ReportCertificateStatus(ctx, c.apiClient, status); err != nil {
+					logx.Node(c.tag).WithError(err).Error("上报证书状态失败")
+				}
+			}
 		}
 	}
 	return result

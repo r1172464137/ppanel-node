@@ -52,7 +52,12 @@ func (t *Task) Start(first bool) error {
 }
 
 func (t *Task) execute(parent context.Context) {
-	ctx, cancel := context.WithTimeout(parent, min(5*t.Interval, 5*time.Minute))
+	// Clamp before multiplication so an arbitrary duration cannot overflow.
+	timeout := 5 * time.Minute
+	if t.Interval < time.Minute {
+		timeout = 5 * t.Interval
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- t.Execute(ctx) }()

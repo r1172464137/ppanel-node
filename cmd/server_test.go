@@ -19,6 +19,10 @@ import (
 	"github.com/perfect-panel/ppanel-node/node"
 )
 
+func testCmdRouting() *panel.RoutingPolicy {
+	return &panel.RoutingPolicy{Version: 1, Outbounds: []panel.Outbound{}, Rules: []panel.RouteRule{}, DefaultOutboundID: "direct", RoutingIdentity: panel.RoutingIdentity{Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1}}
+}
+
 func TestReloadPreservesServiceAndRollsBackWithoutPanel(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -32,7 +36,7 @@ func TestReloadPreservesServiceAndRollsBackWithoutPanel(t *testing.T) {
 	var requests atomic.Int32
 	configForPort := func() *panel.ServerConfigResponse {
 		protocols := []panel.Protocol{{Type: "vless", Enable: true, Port: int(port.Load()), Transport: "tcp"}}
-		return &panel.ServerConfigResponse{Code: 200, Data: &panel.Data{Protocols: &protocols, PullInterval: 3600, PushInterval: 3600}}
+		return &panel.ServerConfigResponse{Code: 200, Data: &panel.Data{Protocols: &protocols, Total: len(protocols), PullInterval: 3600, PushInterval: 3600, Routing: testCmdRouting()}}
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

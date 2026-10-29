@@ -23,14 +23,15 @@ func NewManager() *Manager {
 }
 
 type Limiter struct {
+	mu            sync.RWMutex
 	NodeType      string
 	SpeedLimit    int
 	UserOnlineIP  *sync.Map      // Key: TagUUID, value: {Key: Ip, value: Uid}
 	OldUserOnline *sync.Map      // Key: Ip, value: Uid
-	UUIDtoUID     map[string]int // Key: UUID, value: Uid
+	uuidToUID     map[string]int // Key: UUID, value: Uid
 	UserLimitInfo *sync.Map      // Key: TagUUID, value: UserLimitInfo
 	SpeedLimiter  *sync.Map      // key: TagUUID, value: *ratelimit.Bucket
-	AliveList     map[int]int    // Key: Uid, value: alive_ip
+	aliveList     map[int]int    // Key: Uid, value: alive_ip
 }
 
 type UserLimitInfo struct {
@@ -48,7 +49,7 @@ func (m *Manager) Add(tag string, users []panel.UserInfo, aliveList map[int]int,
 		UserOnlineIP:  new(sync.Map),
 		UserLimitInfo: new(sync.Map),
 		SpeedLimiter:  new(sync.Map),
-		AliveList:     aliveList,
+		aliveList:     cloneAliveList(aliveList),
 		OldUserOnline: new(sync.Map),
 	}
 	uuidmap := make(map[string]int)
@@ -65,7 +66,7 @@ func (m *Manager) Add(tag string, users []panel.UserInfo, aliveList map[int]int,
 		userLimit.OverLimit = false
 		info.UserLimitInfo.Store(format.UserTag(tag, users[i].Uuid), userLimit)
 	}
-	info.UUIDtoUID = uuidmap
+	info.uuidToUID = uuidmap
 	m.lock.Lock()
 	m.limiters[tag] = info
 	m.lock.Unlock()
@@ -88,13 +89,30 @@ func (m *Manager) Delete(tag string) {
 	m.lock.Unlock()
 }
 
+func cloneAliveList(src map[int]int) map[int]int {
+	dst := make(map[int]int, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func (l *Limiter) SetAliveList(src map[int]int) {
+	copy := cloneAliveList(src)
+	l.mu.Lock()
+	l.aliveList = copy
+	l.mu.Unlock()
+}
+
 func (l *Limiter) UpdateUser(tag string, added []panel.UserInfo, deleted []panel.UserInfo) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	for i := range deleted {
 		l.UserLimitInfo.Delete(format.UserTag(tag, deleted[i].Uuid))
 		l.UserOnlineIP.Delete(format.UserTag(tag, deleted[i].Uuid))
 		l.SpeedLimiter.Delete(format.UserTag(tag, deleted[i].Uuid))
-		delete(l.UUIDtoUID, deleted[i].Uuid)
-		delete(l.AliveList, deleted[i].Id)
+		delete(l.uuidToUID, deleted[i].Uuid)
+		delete(l.aliveList, deleted[i].Id)
 	}
 	for i := range added {
 		userLimit := &UserLimitInfo{
@@ -109,11 +127,13 @@ func (l *Limiter) UpdateUser(tag string, added []panel.UserInfo, deleted []panel
 		}
 		userLimit.OverLimit = false
 		l.UserLimitInfo.Store(format.UserTag(tag, added[i].Uuid), userLimit)
-		l.UUIDtoUID[added[i].Uuid] = added[i].Id
+		l.uuidToUID[added[i].Uuid] = added[i].Id
 	}
 }
 
 func (l *Limiter) CheckLimit(taguuid string, ip string, noUDPSource bool) (Bucket *ratelimit.Bucket, Reject bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	// check if ipv4 mapped ipv6
 	ip = strings.TrimPrefix(ip, "::ffff:")
 
@@ -144,7 +164,7 @@ func (l *Limiter) CheckLimit(taguuid string, ip string, noUDPSource bool) (Bucke
 		// Store online user for device limit
 		ipMap := new(sync.Map)
 		ipMap.Store(ip, uid)
-		aliveIp := l.AliveList[uid]
+		aliveIp := l.aliveList[uid]
 		// If any device is online
 		if v, ok := l.UserOnlineIP.LoadOrStore(taguuid, ipMap); ok {
 			ipMap := v.(*sync.Map)
@@ -186,6 +206,15 @@ func (l *Limiter) CheckLimit(taguuid string, ip string, noUDPSource bool) (Bucke
 }
 
 func (l *Limiter) GetOnlineDevice() (*[]panel.OnlineUser, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	onlineUser := l.collectOnlineLocked()
+	return &onlineUser, nil
+}
+
+// Caller holds the same lock used by CheckLimit and UpdateUser. A new IP can
+// therefore never be inserted between the snapshot and deletion.
+func (l *Limiter) collectOnlineLocked() []panel.OnlineUser {
 	var onlineUser []panel.OnlineUser
 	l.UserOnlineIP.Range(func(key, value interface{}) bool {
 		taguuid := key.(string)
@@ -201,7 +230,7 @@ func (l *Limiter) GetOnlineDevice() (*[]panel.OnlineUser, error) {
 		return true
 	})
 
-	return &onlineUser, nil
+	return onlineUser
 }
 
 type UserIpList struct {

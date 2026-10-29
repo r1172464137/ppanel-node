@@ -43,7 +43,7 @@ func TestVlessDispatchAccountsTraffic(t *testing.T) {
 	cfg := conf.New()
 	cfg.LogConfig.Level = "error"
 	c := New(cfg, nil)
-	config := &panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{}, PullInterval: 3600}}
+	config := &panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{}, PullInterval: 3600, Routing: emptyTestRouting()}}
 	if err := c.Start(config); err != nil {
 		t.Fatal(err)
 	}

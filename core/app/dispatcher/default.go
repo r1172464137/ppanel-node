@@ -6,6 +6,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/perfect-panel/ppanel-node/common/counter"
@@ -109,6 +110,39 @@ type DefaultDispatcher struct {
 	Counter        sync.Map
 	LinkManagers   sync.Map // map[string]*LinkManager
 	LimiterManager *limiter.Manager
+	routeEventSink atomic.Pointer[routeEventSink]
+}
+
+// RouteEvent is an opt-in, nonblocking observation of the actual dispatch
+// decision. No sink is installed in production; it never changes routing.
+type RouteEvent struct {
+	InboundTag  string
+	OutboundTag string
+	RuleID      string
+	Target      string
+	MatchedRule bool
+}
+type routeEventSink struct{ ch chan<- RouteEvent }
+
+func (d *DefaultDispatcher) SetRouteEventSink(ch chan<- RouteEvent) {
+	if ch == nil {
+		d.routeEventSink.Store(nil)
+		return
+	}
+	d.routeEventSink.Store(&routeEventSink{ch: ch})
+}
+func (d *DefaultDispatcher) emitRouteEvent(event RouteEvent) {
+	if sink := d.routeEventSink.Load(); sink != nil {
+		// Instrumentation must not interrupt live traffic, even if a caller
+		// incorrectly closes its observation channel.
+		func() {
+			defer func() { _ = recover() }()
+			select {
+			case sink.ch <- event:
+			default:
+			}
+		}()
+	}
 }
 
 func init() {
@@ -492,6 +526,7 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 	routingLink := routing_session.AsRoutingContext(ctx)
 	inTag := routingLink.GetInboundTag()
 	isPickRoute := 0
+	var matchedRuleID string
 	if forcedOutboundTag := session.GetForcedOutboundTagFromContext(ctx); forcedOutboundTag != "" {
 		ctx = session.SetForcedOutboundTagToContext(ctx, "")
 		if h := d.ohm.GetHandler(forcedOutboundTag); h != nil {
@@ -509,6 +544,7 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 			outTag := route.GetOutboundTag()
 			if h := d.ohm.GetHandler(outTag); h != nil {
 				isPickRoute = 2
+				matchedRuleID = route.GetRuleTag()
 				if route.GetRuleTag() == "" {
 					errors.LogInfo(ctx, "taking detour [", outTag, "] for [", destination, "]")
 				} else {
@@ -538,6 +574,9 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 	}
 
 	ob.Tag = handler.Tag()
+	if d.routeEventSink.Load() != nil {
+		d.emitRouteEvent(RouteEvent{InboundTag: inTag, OutboundTag: ob.Tag, RuleID: matchedRuleID, Target: destination.String(), MatchedRule: isPickRoute == 2})
+	}
 	if accessMessage := log.AccessMessageFromContext(ctx); accessMessage != nil {
 		if tag := handler.Tag(); tag != "" {
 			if inTag == "" {

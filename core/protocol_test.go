@@ -105,7 +105,7 @@ func protocolServer(t *testing.T, name string) (*XrayCore, int, *panel.NodeInfo,
 	cfg := conf.New()
 	cfg.LogConfig.Level = "error"
 	c := New(cfg, nil)
-	if err := c.Start(&panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{}, PullInterval: 3600}}); err != nil {
+	if err := c.Start(&panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{}, PullInterval: 3600, Routing: emptyTestRouting()}}); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { c.Close() })
@@ -174,7 +174,8 @@ func protocolClient(t *testing.T, name string, port int, pin string) *xray.Insta
 		raw, _ := json.Marshal(stream)
 		item.StreamSettings = string(raw)
 	}
-	built, err := outboundbuilder.Build(&panel.ServerConfigResponse{Data: &panel.Data{Outbound: &[]panel.Outbound{item}, Protocols: &[]panel.Protocol{}}}, false)
+	item.ID = orderedSOCKSID
+	built, err := outboundbuilder.Build(orderedConfig([]panel.RouteRule{}, []panel.Outbound{item}), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +184,7 @@ func protocolClient(t *testing.T, name string, port int, pin string) *xray.Insta
 		t.Fatal(err)
 	}
 	for _, outbound := range built.Outbounds {
-		if outbound.Tag == item.Name {
+		if outbound.Tag == "routing_"+item.ID {
 			cfg.Outbound = []*xray.OutboundHandlerConfig{outbound}
 		}
 	}

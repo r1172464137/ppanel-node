@@ -2,9 +2,9 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
 	"github.com/perfect-panel/ppanel-node/common/logx"
@@ -35,6 +35,8 @@ type XrayCore struct {
 	Client                      *panel.ServerClient
 	ReloadCh                    chan struct{}
 	serverConfigMonitorPeriodic *task.Task
+	monitorMu                   sync.Mutex
+	lastSignaledCandidate       string
 	access                      sync.Mutex
 	Server                      *core.Instance
 	LimiterManager              *limiter.Manager
@@ -61,23 +63,58 @@ func New(config *conf.Conf, client *panel.ServerClient) *XrayCore {
 	return core
 }
 
+// Start retains the existing standalone behavior. Reload prepares a core
+// without its monitor and activates it only after the listener switch commits.
 func (v *XrayCore) Start(serverconfig *panel.ServerConfigResponse) error {
+	return v.start(serverconfig, true)
+}
+
+func (v *XrayCore) StartPrepared(serverconfig *panel.ServerConfigResponse) error {
+	return v.start(serverconfig, false)
+}
+
+func (v *XrayCore) start(serverconfig *panel.ServerConfigResponse, monitor bool) error {
 	v.access.Lock()
 	defer v.access.Unlock()
+	if serverconfig == nil {
+		return fmt.Errorf("server config is nil")
+	}
+	if err := panel.ValidateDeliveryMetadata(serverconfig.Data); err != nil {
+		return err
+	}
 	server, err := getCore(v.Config, serverconfig)
 	if err != nil {
-		return err
+		return fmt.Errorf("build core: %w", err)
 	}
 	v.Server = server
 	if err := v.Server.Start(); err != nil {
 		_ = v.Server.Close()
-		return err
+		v.Server = nil
+		return fmt.Errorf("start core: %w", err)
 	}
 	v.ihm = v.Server.GetFeature(inbound.ManagerType()).(inbound.Manager)
 	v.ohm = v.Server.GetFeature(outbound.ManagerType()).(outbound.Manager)
 	v.dispatcher = v.Server.GetFeature(routing.DispatcherType()).(*dispatcher.DefaultDispatcher)
 	v.dispatcher.LimiterManager = v.LimiterManager
-	v.startTasks(serverconfig)
+	if monitor {
+		if err := v.startTasks(serverconfig); err != nil {
+			_ = v.Server.Close()
+			v.Server, v.ihm, v.ohm, v.dispatcher = nil, nil, nil, nil
+			return fmt.Errorf("start core monitor: %w", err)
+		}
+	}
+	return nil
+}
+
+func (v *XrayCore) Activate(serverconfig *panel.ServerConfigResponse) error {
+	v.access.Lock()
+	defer v.access.Unlock()
+	if v.Server == nil {
+		return fmt.Errorf("core is not running")
+	}
+	if v.serverConfigMonitorPeriodic == nil {
+		return v.startTasks(serverconfig)
+	}
 	return nil
 }
 
@@ -163,26 +200,51 @@ func getCore(c *conf.Conf, serverconfig *panel.ServerConfigResponse) (*core.Inst
 	return server, nil
 }
 
-func (c *XrayCore) startTasks(serverconfig *panel.ServerConfigResponse) {
-	// fetch node info task
-	pullinverval := serverconfig.Data.PullInterval
-	if pullinverval <= 0 {
-		pullinverval = 60
+func (c *XrayCore) startTasks(serverconfig *panel.ServerConfigResponse) error {
+	if serverconfig == nil || serverconfig.Data == nil {
+		return fmt.Errorf("missing configuration")
 	}
-	c.serverConfigMonitorPeriodic = &task.Task{
-		Interval: time.Duration(pullinverval) * time.Second,
-		Execute:  c.ServerConfigMonitor,
-		ReloadCh: c.ReloadCh,
+	interval, err := panel.IntervalDuration(serverconfig.Data.PullInterval)
+	if err != nil {
+		return fmt.Errorf("pull interval: %w", err)
 	}
-	_ = c.serverConfigMonitorPeriodic.Start(false)
+	monitor := &task.Task{Interval: interval, Execute: c.ServerConfigMonitor, ReloadCh: c.ReloadCh}
+	// Recheck immediately around cutover: a retired old client's in-flight
+	// observation is deliberately fenced and must be rediscovered promptly.
+	if err := monitor.Start(true); err != nil {
+		return err
+	}
+	c.serverConfigMonitorPeriodic = monitor
+	return nil
 }
 
 func (c *XrayCore) ServerConfigMonitor(ctx context.Context) (err error) {
-	newServerConfig, err := panel.GetServerConfig(ctx, c.Client)
-	if err != nil {
-		logx.Component("xray").WithError(err).Error("获取服务端配置失败")
+	if c.Client == nil {
 		return nil
 	}
+	newServerConfig, err := panel.GetServerConfig(ctx, c.Client)
+	if err != nil {
+		if ctx.Err() != nil || errors.Is(err, panel.ErrRetiredClient) {
+			return nil
+		}
+		c.Client.RecordFailure(nil, panel.StageFetch)
+		logx.Component("xray").Error("获取服务端配置失败，已记录脱敏 fetch 状态")
+		return nil
+	}
+	if newServerConfig == nil {
+		c.monitorMu.Lock()
+		c.lastSignaledCandidate = ""
+		c.monitorMu.Unlock()
+		return nil
+	}
+	c.monitorMu.Lock()
+	key := newServerConfig.CandidateKey()
+	if key != "" && key == c.lastSignaledCandidate {
+		c.monitorMu.Unlock()
+		return nil
+	}
+	c.lastSignaledCandidate = key
+	c.monitorMu.Unlock()
 	if newServerConfig != nil {
 		logx.Component("xray").Info("检测到服务端配置变更，已投递重载信号")
 		// Non-blocking signal to avoid goroutine stuck when channel is full or nil

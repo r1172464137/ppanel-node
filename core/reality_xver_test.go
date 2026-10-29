@@ -16,7 +16,7 @@ func TestRealityXverValidation(t *testing.T) {
 			p := panel.Protocol{Type: "vless", Enable: enabled, Port: 20100, Transport: "tcp", Security: "reality", SNI: "example.com", RealityServerPort: 8443, RealityPrivateKey: "key", RealityShortID: "abcd", RealityXver: xver}
 			for _, accept := range []bool{false, true} {
 				p.AcceptProxyProtocol = accept
-				err := ValidateServerConfig(&panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{p}}})
+				err := ValidateServerConfig(&panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{p}, Total: 1, Routing: emptyTestRouting()}})
 				if (err != nil) != (xver < 0 || xver > 2) {
 					t.Fatalf("enabled=%v xver=%d accept=%v: %v", enabled, xver, accept, err)
 				}

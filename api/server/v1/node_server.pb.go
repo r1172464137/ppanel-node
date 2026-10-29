@@ -27,6 +27,58 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type RouteKind int32
+
+const (
+	RouteKind_ROUTE_KIND_UNSPECIFIED RouteKind = 0
+	RouteKind_ROUTE_KIND_DOMAIN      RouteKind = 1
+	RouteKind_ROUTE_KIND_IP          RouteKind = 2
+	RouteKind_ROUTE_KIND_PROTOCOL    RouteKind = 3
+)
+
+// Enum value maps for RouteKind.
+var (
+	RouteKind_name = map[int32]string{
+		0: "ROUTE_KIND_UNSPECIFIED",
+		1: "ROUTE_KIND_DOMAIN",
+		2: "ROUTE_KIND_IP",
+		3: "ROUTE_KIND_PROTOCOL",
+	}
+	RouteKind_value = map[string]int32{
+		"ROUTE_KIND_UNSPECIFIED": 0,
+		"ROUTE_KIND_DOMAIN":      1,
+		"ROUTE_KIND_IP":          2,
+		"ROUTE_KIND_PROTOCOL":    3,
+	}
+)
+
+func (x RouteKind) Enum() *RouteKind {
+	p := new(RouteKind)
+	*p = x
+	return p
+}
+
+func (x RouteKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RouteKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_api_server_v1_node_server_proto_enumTypes[0].Descriptor()
+}
+
+func (RouteKind) Type() protoreflect.EnumType {
+	return &file_api_server_v1_node_server_proto_enumTypes[0]
+}
+
+func (x RouteKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RouteKind.Descriptor instead.
+func (RouteKind) EnumDescriptor() ([]byte, []int) {
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{0}
+}
+
 type OnlineUser struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
@@ -228,13 +280,19 @@ func (x *PushUserTrafficRequest) GetTraffic() []*UserTraffic {
 }
 
 type PushServerStatusRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Cpu           float64                `protobuf:"fixed64,1,opt,name=cpu,proto3" json:"cpu,omitempty"`
-	Mem           float64                `protobuf:"fixed64,2,opt,name=mem,proto3" json:"mem,omitempty"`
-	Disk          float64                `protobuf:"fixed64,3,opt,name=disk,proto3" json:"disk,omitempty"`
-	UpdatedAt     int64                  `protobuf:"varint,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Cpu             float64                `protobuf:"fixed64,1,opt,name=cpu,proto3" json:"cpu,omitempty"`
+	Mem             float64                `protobuf:"fixed64,2,opt,name=mem,proto3" json:"mem,omitempty"`
+	Disk            float64                `protobuf:"fixed64,3,opt,name=disk,proto3" json:"disk,omitempty"`
+	UpdatedAt       int64                  `protobuf:"varint,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	RoutingVersion  uint32                 `protobuf:"varint,5,opt,name=routing_version,json=routingVersion,proto3" json:"routing_version,omitempty"`
+	RoutingApplied  *RoutingIdentity       `protobuf:"bytes,6,opt,name=routing_applied,json=routingApplied,proto3" json:"routing_applied,omitempty"`
+	RoutingPending  *RoutingIdentity       `protobuf:"bytes,7,opt,name=routing_pending,json=routingPending,proto3" json:"routing_pending,omitempty"`
+	RoutingError    *RoutingError          `protobuf:"bytes,8,opt,name=routing_error,json=routingError,proto3" json:"routing_error,omitempty"`
+	InstanceId      string                 `protobuf:"bytes,9,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	RoutingSequence uint64                 `protobuf:"varint,10,opt,name=routing_sequence,json=routingSequence,proto3" json:"routing_sequence,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *PushServerStatusRequest) Reset() {
@@ -295,6 +353,184 @@ func (x *PushServerStatusRequest) GetUpdatedAt() int64 {
 	return 0
 }
 
+func (x *PushServerStatusRequest) GetRoutingVersion() uint32 {
+	if x != nil {
+		return x.RoutingVersion
+	}
+	return 0
+}
+
+func (x *PushServerStatusRequest) GetRoutingApplied() *RoutingIdentity {
+	if x != nil {
+		return x.RoutingApplied
+	}
+	return nil
+}
+
+func (x *PushServerStatusRequest) GetRoutingPending() *RoutingIdentity {
+	if x != nil {
+		return x.RoutingPending
+	}
+	return nil
+}
+
+func (x *PushServerStatusRequest) GetRoutingError() *RoutingError {
+	if x != nil {
+		return x.RoutingError
+	}
+	return nil
+}
+
+func (x *PushServerStatusRequest) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *PushServerStatusRequest) GetRoutingSequence() uint64 {
+	if x != nil {
+		return x.RoutingSequence
+	}
+	return 0
+}
+
+type RoutingIdentity struct {
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	Mode                    string                 `protobuf:"bytes,1,opt,name=mode,proto3" json:"mode,omitempty"`
+	Source                  string                 `protobuf:"bytes,2,opt,name=source,proto3" json:"source,omitempty"`
+	SourceServerId          int64                  `protobuf:"varint,3,opt,name=source_server_id,json=sourceServerId,proto3" json:"source_server_id,omitempty"`
+	SourceRevision          int64                  `protobuf:"varint,4,opt,name=source_revision,json=sourceRevision,proto3" json:"source_revision,omitempty"`
+	LocalTransitionRevision int64                  `protobuf:"varint,5,opt,name=local_transition_revision,json=localTransitionRevision,proto3" json:"local_transition_revision,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *RoutingIdentity) Reset() {
+	*x = RoutingIdentity{}
+	mi := &file_api_server_v1_node_server_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RoutingIdentity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RoutingIdentity) ProtoMessage() {}
+
+func (x *RoutingIdentity) ProtoReflect() protoreflect.Message {
+	mi := &file_api_server_v1_node_server_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RoutingIdentity.ProtoReflect.Descriptor instead.
+func (*RoutingIdentity) Descriptor() ([]byte, []int) {
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *RoutingIdentity) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *RoutingIdentity) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *RoutingIdentity) GetSourceServerId() int64 {
+	if x != nil {
+		return x.SourceServerId
+	}
+	return 0
+}
+
+func (x *RoutingIdentity) GetSourceRevision() int64 {
+	if x != nil {
+		return x.SourceRevision
+	}
+	return 0
+}
+
+func (x *RoutingIdentity) GetLocalTransitionRevision() int64 {
+	if x != nil {
+		return x.LocalTransitionRevision
+	}
+	return 0
+}
+
+type RoutingError struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Identity      *RoutingIdentity       `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
+	Stage         string                 `protobuf:"bytes,2,opt,name=stage,proto3" json:"stage,omitempty"`
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RoutingError) Reset() {
+	*x = RoutingError{}
+	mi := &file_api_server_v1_node_server_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RoutingError) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RoutingError) ProtoMessage() {}
+
+func (x *RoutingError) ProtoReflect() protoreflect.Message {
+	mi := &file_api_server_v1_node_server_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RoutingError.ProtoReflect.Descriptor instead.
+func (*RoutingError) Descriptor() ([]byte, []int) {
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *RoutingError) GetIdentity() *RoutingIdentity {
+	if x != nil {
+		return x.Identity
+	}
+	return nil
+}
+
+func (x *RoutingError) GetStage() string {
+	if x != nil {
+		return x.Stage
+	}
+	return ""
+}
+
+func (x *RoutingError) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 // Result is the common error and no-data response envelope. Its fields match
 // the JSON API's code and msg fields.
 type Result struct {
@@ -307,7 +543,7 @@ type Result struct {
 
 func (x *Result) Reset() {
 	*x = Result{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[5]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -319,7 +555,7 @@ func (x *Result) String() string {
 func (*Result) ProtoMessage() {}
 
 func (x *Result) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[5]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -332,7 +568,7 @@ func (x *Result) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Result.ProtoReflect.Descriptor instead.
 func (*Result) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{5}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Result) GetCode() uint32 {
@@ -359,7 +595,7 @@ type ServerBasic struct {
 
 func (x *ServerBasic) Reset() {
 	*x = ServerBasic{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[6]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -371,7 +607,7 @@ func (x *ServerBasic) String() string {
 func (*ServerBasic) ProtoMessage() {}
 
 func (x *ServerBasic) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[6]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -384,7 +620,7 @@ func (x *ServerBasic) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerBasic.ProtoReflect.Descriptor instead.
 func (*ServerBasic) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{6}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ServerBasic) GetPushInterval() int64 {
@@ -414,7 +650,7 @@ type ServerConfigData struct {
 
 func (x *ServerConfigData) Reset() {
 	*x = ServerConfigData{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[7]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -426,7 +662,7 @@ func (x *ServerConfigData) String() string {
 func (*ServerConfigData) ProtoMessage() {}
 
 func (x *ServerConfigData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[7]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -439,7 +675,7 @@ func (x *ServerConfigData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerConfigData.ProtoReflect.Descriptor instead.
 func (*ServerConfigData) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{7}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ServerConfigData) GetBasic() *ServerBasic {
@@ -474,7 +710,7 @@ type GetServerConfigResponse struct {
 
 func (x *GetServerConfigResponse) Reset() {
 	*x = GetServerConfigResponse{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[8]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -486,7 +722,7 @@ func (x *GetServerConfigResponse) String() string {
 func (*GetServerConfigResponse) ProtoMessage() {}
 
 func (x *GetServerConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[8]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -499,7 +735,7 @@ func (x *GetServerConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetServerConfigResponse.ProtoReflect.Descriptor instead.
 func (*GetServerConfigResponse) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{8}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetServerConfigResponse) GetCode() uint32 {
@@ -535,7 +771,7 @@ type ServerUser struct {
 
 func (x *ServerUser) Reset() {
 	*x = ServerUser{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[9]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -547,7 +783,7 @@ func (x *ServerUser) String() string {
 func (*ServerUser) ProtoMessage() {}
 
 func (x *ServerUser) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[9]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -560,7 +796,7 @@ func (x *ServerUser) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerUser.ProtoReflect.Descriptor instead.
 func (*ServerUser) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{9}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ServerUser) GetId() int64 {
@@ -600,7 +836,7 @@ type ServerUserListData struct {
 
 func (x *ServerUserListData) Reset() {
 	*x = ServerUserListData{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[10]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -612,7 +848,7 @@ func (x *ServerUserListData) String() string {
 func (*ServerUserListData) ProtoMessage() {}
 
 func (x *ServerUserListData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[10]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -625,7 +861,7 @@ func (x *ServerUserListData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerUserListData.ProtoReflect.Descriptor instead.
 func (*ServerUserListData) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{10}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ServerUserListData) GetUsers() []*ServerUser {
@@ -646,7 +882,7 @@ type GetServerUserListResponse struct {
 
 func (x *GetServerUserListResponse) Reset() {
 	*x = GetServerUserListResponse{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[11]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -658,7 +894,7 @@ func (x *GetServerUserListResponse) String() string {
 func (*GetServerUserListResponse) ProtoMessage() {}
 
 func (x *GetServerUserListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[11]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -671,7 +907,7 @@ func (x *GetServerUserListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetServerUserListResponse.ProtoReflect.Descriptor instead.
 func (*GetServerUserListResponse) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{11}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetServerUserListResponse) GetCode() uint32 {
@@ -708,7 +944,7 @@ type DNSResolver struct {
 
 func (x *DNSResolver) Reset() {
 	*x = DNSResolver{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[12]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -720,7 +956,7 @@ func (x *DNSResolver) String() string {
 func (*DNSResolver) ProtoMessage() {}
 
 func (x *DNSResolver) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[12]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -733,7 +969,7 @@ func (x *DNSResolver) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DNSResolver.ProtoReflect.Descriptor instead.
 func (*DNSResolver) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{12}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DNSResolver) GetProto() string {
@@ -811,13 +1047,14 @@ type Outbound struct {
 	Rules                   []string               `protobuf:"bytes,41,rep,name=rules,proto3" json:"rules,omitempty"`
 	IpRules                 []string               `protobuf:"bytes,42,rep,name=ip_rules,json=ipRules,proto3" json:"ip_rules,omitempty"`
 	ProtocolRules           []string               `protobuf:"bytes,43,rep,name=protocol_rules,json=protocolRules,proto3" json:"protocol_rules,omitempty"`
+	Id                      string                 `protobuf:"bytes,44,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
 
 func (x *Outbound) Reset() {
 	*x = Outbound{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[13]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -829,7 +1066,7 @@ func (x *Outbound) String() string {
 func (*Outbound) ProtoMessage() {}
 
 func (x *Outbound) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[13]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -842,7 +1079,7 @@ func (x *Outbound) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Outbound.ProtoReflect.Descriptor instead.
 func (*Outbound) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{13}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Outbound) GetName() string {
@@ -1146,6 +1383,205 @@ func (x *Outbound) GetProtocolRules() []string {
 	return nil
 }
 
+func (x *Outbound) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+type RouteRule struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Enabled       *bool                  `protobuf:"varint,2,opt,name=enabled,proto3,oneof" json:"enabled,omitempty"`
+	Remark        string                 `protobuf:"bytes,3,opt,name=remark,proto3" json:"remark,omitempty"`
+	Kind          RouteKind              `protobuf:"varint,4,opt,name=kind,proto3,enum=ppanel.node.server.v1.RouteKind" json:"kind,omitempty"`
+	Values        []string               `protobuf:"bytes,5,rep,name=values,proto3" json:"values,omitempty"`
+	OutboundId    string                 `protobuf:"bytes,6,opt,name=outbound_id,json=outboundId,proto3" json:"outbound_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RouteRule) Reset() {
+	*x = RouteRule{}
+	mi := &file_api_server_v1_node_server_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RouteRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RouteRule) ProtoMessage() {}
+
+func (x *RouteRule) ProtoReflect() protoreflect.Message {
+	mi := &file_api_server_v1_node_server_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RouteRule.ProtoReflect.Descriptor instead.
+func (*RouteRule) Descriptor() ([]byte, []int) {
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *RouteRule) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *RouteRule) GetEnabled() bool {
+	if x != nil && x.Enabled != nil {
+		return *x.Enabled
+	}
+	return false
+}
+
+func (x *RouteRule) GetRemark() string {
+	if x != nil {
+		return x.Remark
+	}
+	return ""
+}
+
+func (x *RouteRule) GetKind() RouteKind {
+	if x != nil {
+		return x.Kind
+	}
+	return RouteKind_ROUTE_KIND_UNSPECIFIED
+}
+
+func (x *RouteRule) GetValues() []string {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
+func (x *RouteRule) GetOutboundId() string {
+	if x != nil {
+		return x.OutboundId
+	}
+	return ""
+}
+
+type RoutingPolicy struct {
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	Version                 uint32                 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	Outbounds               []*Outbound            `protobuf:"bytes,2,rep,name=outbounds,proto3" json:"outbounds,omitempty"`
+	Rules                   []*RouteRule           `protobuf:"bytes,3,rep,name=rules,proto3" json:"rules,omitempty"`
+	DefaultOutboundId       string                 `protobuf:"bytes,4,opt,name=default_outbound_id,json=defaultOutboundId,proto3" json:"default_outbound_id,omitempty"`
+	Mode                    string                 `protobuf:"bytes,5,opt,name=mode,proto3" json:"mode,omitempty"`
+	Source                  string                 `protobuf:"bytes,6,opt,name=source,proto3" json:"source,omitempty"`
+	SourceServerId          int64                  `protobuf:"varint,7,opt,name=source_server_id,json=sourceServerId,proto3" json:"source_server_id,omitempty"`
+	SourceRevision          int64                  `protobuf:"varint,8,opt,name=source_revision,json=sourceRevision,proto3" json:"source_revision,omitempty"`
+	LocalTransitionRevision int64                  `protobuf:"varint,9,opt,name=local_transition_revision,json=localTransitionRevision,proto3" json:"local_transition_revision,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *RoutingPolicy) Reset() {
+	*x = RoutingPolicy{}
+	mi := &file_api_server_v1_node_server_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RoutingPolicy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RoutingPolicy) ProtoMessage() {}
+
+func (x *RoutingPolicy) ProtoReflect() protoreflect.Message {
+	mi := &file_api_server_v1_node_server_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RoutingPolicy.ProtoReflect.Descriptor instead.
+func (*RoutingPolicy) Descriptor() ([]byte, []int) {
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *RoutingPolicy) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *RoutingPolicy) GetOutbounds() []*Outbound {
+	if x != nil {
+		return x.Outbounds
+	}
+	return nil
+}
+
+func (x *RoutingPolicy) GetRules() []*RouteRule {
+	if x != nil {
+		return x.Rules
+	}
+	return nil
+}
+
+func (x *RoutingPolicy) GetDefaultOutboundId() string {
+	if x != nil {
+		return x.DefaultOutboundId
+	}
+	return ""
+}
+
+func (x *RoutingPolicy) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *RoutingPolicy) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *RoutingPolicy) GetSourceServerId() int64 {
+	if x != nil {
+		return x.SourceServerId
+	}
+	return 0
+}
+
+func (x *RoutingPolicy) GetSourceRevision() int64 {
+	if x != nil {
+		return x.SourceRevision
+	}
+	return 0
+}
+
+func (x *RoutingPolicy) GetLocalTransitionRevision() int64 {
+	if x != nil {
+		return x.LocalTransitionRevision
+	}
+	return 0
+}
+
 // ServerProtocol is PPanel's normalized, flat protocol configuration. The
 // protocol type identifies which fields are consumed by a node runtime; a flat
 // model matches the established PPanel and Star-Node integration contract.
@@ -1224,7 +1660,7 @@ type ServerProtocol struct {
 
 func (x *ServerProtocol) Reset() {
 	*x = ServerProtocol{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[14]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1236,7 +1672,7 @@ func (x *ServerProtocol) String() string {
 func (*ServerProtocol) ProtoMessage() {}
 
 func (x *ServerProtocol) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[14]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1249,7 +1685,7 @@ func (x *ServerProtocol) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerProtocol.ProtoReflect.Descriptor instead.
 func (*ServerProtocol) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{14}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ServerProtocol) GetType() string {
@@ -1729,13 +2165,14 @@ type QueryServerProtocolConfigData struct {
 	Total                  int64                  `protobuf:"varint,9,opt,name=total,proto3" json:"total,omitempty"`
 	BlockIps               []string               `protobuf:"bytes,10,rep,name=block_ips,json=blockIps,proto3" json:"block_ips,omitempty"`
 	BlockProtocols         []string               `protobuf:"bytes,11,rep,name=block_protocols,json=blockProtocols,proto3" json:"block_protocols,omitempty"`
+	Routing                *RoutingPolicy         `protobuf:"bytes,12,opt,name=routing,proto3" json:"routing,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
 
 func (x *QueryServerProtocolConfigData) Reset() {
 	*x = QueryServerProtocolConfigData{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[15]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1747,7 +2184,7 @@ func (x *QueryServerProtocolConfigData) String() string {
 func (*QueryServerProtocolConfigData) ProtoMessage() {}
 
 func (x *QueryServerProtocolConfigData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[15]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1760,7 +2197,7 @@ func (x *QueryServerProtocolConfigData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryServerProtocolConfigData.ProtoReflect.Descriptor instead.
 func (*QueryServerProtocolConfigData) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{15}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *QueryServerProtocolConfigData) GetTrafficReportThreshold() int64 {
@@ -1840,6 +2277,13 @@ func (x *QueryServerProtocolConfigData) GetBlockProtocols() []string {
 	return nil
 }
 
+func (x *QueryServerProtocolConfigData) GetRouting() *RoutingPolicy {
+	if x != nil {
+		return x.Routing
+	}
+	return nil
+}
+
 type QueryServerProtocolConfigResponse struct {
 	state         protoimpl.MessageState         `protogen:"open.v1"`
 	Code          uint32                         `protobuf:"varint,1,opt,name=code,proto3" json:"code,omitempty"`
@@ -1851,7 +2295,7 @@ type QueryServerProtocolConfigResponse struct {
 
 func (x *QueryServerProtocolConfigResponse) Reset() {
 	*x = QueryServerProtocolConfigResponse{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[16]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1863,7 +2307,7 @@ func (x *QueryServerProtocolConfigResponse) String() string {
 func (*QueryServerProtocolConfigResponse) ProtoMessage() {}
 
 func (x *QueryServerProtocolConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[16]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1876,7 +2320,7 @@ func (x *QueryServerProtocolConfigResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use QueryServerProtocolConfigResponse.ProtoReflect.Descriptor instead.
 func (*QueryServerProtocolConfigResponse) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{16}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *QueryServerProtocolConfigResponse) GetCode() uint32 {
@@ -1916,13 +2360,31 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\x06upload\x18\x02 \x01(\x03R\x06upload\x12\x1a\n" +
 	"\bdownload\x18\x03 \x01(\x03R\bdownload\"V\n" +
 	"\x16PushUserTrafficRequest\x12<\n" +
-	"\atraffic\x18\x01 \x03(\v2\".ppanel.node.server.v1.UserTrafficR\atraffic\"p\n" +
+	"\atraffic\x18\x01 \x03(\v2\".ppanel.node.server.v1.UserTrafficR\atraffic\"\xd1\x03\n" +
 	"\x17PushServerStatusRequest\x12\x10\n" +
 	"\x03cpu\x18\x01 \x01(\x01R\x03cpu\x12\x10\n" +
 	"\x03mem\x18\x02 \x01(\x01R\x03mem\x12\x12\n" +
 	"\x04disk\x18\x03 \x01(\x01R\x04disk\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x04 \x01(\x03R\tupdatedAt\"6\n" +
+	"updated_at\x18\x04 \x01(\x03R\tupdatedAt\x12'\n" +
+	"\x0frouting_version\x18\x05 \x01(\rR\x0eroutingVersion\x12O\n" +
+	"\x0frouting_applied\x18\x06 \x01(\v2&.ppanel.node.server.v1.RoutingIdentityR\x0eroutingApplied\x12O\n" +
+	"\x0frouting_pending\x18\a \x01(\v2&.ppanel.node.server.v1.RoutingIdentityR\x0eroutingPending\x12H\n" +
+	"\rrouting_error\x18\b \x01(\v2#.ppanel.node.server.v1.RoutingErrorR\froutingError\x12\x1f\n" +
+	"\vinstance_id\x18\t \x01(\tR\n" +
+	"instanceId\x12)\n" +
+	"\x10routing_sequence\x18\n" +
+	" \x01(\x04R\x0froutingSequence\"\xcc\x01\n" +
+	"\x0fRoutingIdentity\x12\x12\n" +
+	"\x04mode\x18\x01 \x01(\tR\x04mode\x12\x16\n" +
+	"\x06source\x18\x02 \x01(\tR\x06source\x12(\n" +
+	"\x10source_server_id\x18\x03 \x01(\x03R\x0esourceServerId\x12'\n" +
+	"\x0fsource_revision\x18\x04 \x01(\x03R\x0esourceRevision\x12:\n" +
+	"\x19local_transition_revision\x18\x05 \x01(\x03R\x17localTransitionRevision\"\x82\x01\n" +
+	"\fRoutingError\x12B\n" +
+	"\bidentity\x18\x01 \x01(\v2&.ppanel.node.server.v1.RoutingIdentityR\bidentity\x12\x14\n" +
+	"\x05stage\x18\x02 \x01(\tR\x05stage\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"6\n" +
 	"\x06Result\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\rR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"W\n" +
@@ -1955,7 +2417,7 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1f\n" +
 	"\vserver_name\x18\x03 \x01(\tR\n" +
 	"serverName\x12\x18\n" +
-	"\adomains\x18\x04 \x03(\tR\adomains\"\xdf\n" +
+	"\adomains\x18\x04 \x03(\tR\adomains\"\xef\n" +
 	"\n" +
 	"\bOutbound\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
@@ -2008,7 +2470,28 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\x0fstream_settings\x18( \x01(\tR\x0estreamSettings\x12\x14\n" +
 	"\x05rules\x18) \x03(\tR\x05rules\x12\x19\n" +
 	"\bip_rules\x18* \x03(\tR\aipRules\x12%\n" +
-	"\x0eprotocol_rules\x18+ \x03(\tR\rprotocolRules\"\x8a\x12\n" +
+	"\x0eprotocol_rules\x18+ \x03(\tR\rprotocolRules\x12\x0e\n" +
+	"\x02id\x18, \x01(\tR\x02id\"\xcd\x01\n" +
+	"\tRouteRule\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\aenabled\x18\x02 \x01(\bH\x00R\aenabled\x88\x01\x01\x12\x16\n" +
+	"\x06remark\x18\x03 \x01(\tR\x06remark\x124\n" +
+	"\x04kind\x18\x04 \x01(\x0e2 .ppanel.node.server.v1.RouteKindR\x04kind\x12\x16\n" +
+	"\x06values\x18\x05 \x03(\tR\x06values\x12\x1f\n" +
+	"\voutbound_id\x18\x06 \x01(\tR\n" +
+	"outboundIdB\n" +
+	"\n" +
+	"\b_enabled\"\x8b\x03\n" +
+	"\rRoutingPolicy\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\rR\aversion\x12=\n" +
+	"\toutbounds\x18\x02 \x03(\v2\x1f.ppanel.node.server.v1.OutboundR\toutbounds\x126\n" +
+	"\x05rules\x18\x03 \x03(\v2 .ppanel.node.server.v1.RouteRuleR\x05rules\x12.\n" +
+	"\x13default_outbound_id\x18\x04 \x01(\tR\x11defaultOutboundId\x12\x12\n" +
+	"\x04mode\x18\x05 \x01(\tR\x04mode\x12\x16\n" +
+	"\x06source\x18\x06 \x01(\tR\x06source\x12(\n" +
+	"\x10source_server_id\x18\a \x01(\x03R\x0esourceServerId\x12'\n" +
+	"\x0fsource_revision\x18\b \x01(\x03R\x0esourceRevision\x12:\n" +
+	"\x19local_transition_revision\x18\t \x01(\x03R\x17localTransitionRevision\"\x8a\x12\n" +
 	"\x0eServerProtocol\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\rR\x04port\x12\x18\n" +
@@ -2087,7 +2570,7 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\x11cert_dns_provider\x18@ \x01(\tR\x0fcertDnsProvider\x12 \n" +
 	"\fcert_dns_env\x18A \x01(\tR\n" +
 	"certDnsEnv\x12!\n" +
-	"\freality_xver\x18B \x01(\rR\vrealityXver\"\xee\x03\n" +
+	"\freality_xver\x18B \x01(\rR\vrealityXver\"\xae\x04\n" +
 	"\x1dQueryServerProtocolConfigData\x128\n" +
 	"\x18traffic_report_threshold\x18\x01 \x01(\x03R\x16trafficReportThreshold\x12#\n" +
 	"\rpush_interval\x18\x02 \x01(\x03R\fpushInterval\x12#\n" +
@@ -2101,11 +2584,17 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\x05total\x18\t \x01(\x03R\x05total\x12\x1b\n" +
 	"\tblock_ips\x18\n" +
 	" \x03(\tR\bblockIps\x12'\n" +
-	"\x0fblock_protocols\x18\v \x03(\tR\x0eblockProtocols\"\x9b\x01\n" +
+	"\x0fblock_protocols\x18\v \x03(\tR\x0eblockProtocols\x12>\n" +
+	"\arouting\x18\f \x01(\v2$.ppanel.node.server.v1.RoutingPolicyR\arouting\"\x9b\x01\n" +
 	"!QueryServerProtocolConfigResponse\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\rR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12H\n" +
-	"\x04data\x18\x03 \x01(\v24.ppanel.node.server.v1.QueryServerProtocolConfigDataR\x04dataB=Z;github.com/perfect-panel/ppanel-node/api/server/v1;serverv1b\x06proto3"
+	"\x04data\x18\x03 \x01(\v24.ppanel.node.server.v1.QueryServerProtocolConfigDataR\x04data*j\n" +
+	"\tRouteKind\x12\x1a\n" +
+	"\x16ROUTE_KIND_UNSPECIFIED\x10\x00\x12\x15\n" +
+	"\x11ROUTE_KIND_DOMAIN\x10\x01\x12\x11\n" +
+	"\rROUTE_KIND_IP\x10\x02\x12\x17\n" +
+	"\x13ROUTE_KIND_PROTOCOL\x10\x03B=Z;github.com/perfect-panel/ppanel-node/api/server/v1;serverv1b\x06proto3"
 
 var (
 	file_api_server_v1_node_server_proto_rawDescOnce sync.Once
@@ -2119,47 +2608,61 @@ func file_api_server_v1_node_server_proto_rawDescGZIP() []byte {
 	return file_api_server_v1_node_server_proto_rawDescData
 }
 
-var file_api_server_v1_node_server_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_api_server_v1_node_server_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_api_server_v1_node_server_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_api_server_v1_node_server_proto_goTypes = []any{
-	(*OnlineUser)(nil),                        // 0: ppanel.node.server.v1.OnlineUser
-	(*PushOnlineUsersRequest)(nil),            // 1: ppanel.node.server.v1.PushOnlineUsersRequest
-	(*UserTraffic)(nil),                       // 2: ppanel.node.server.v1.UserTraffic
-	(*PushUserTrafficRequest)(nil),            // 3: ppanel.node.server.v1.PushUserTrafficRequest
-	(*PushServerStatusRequest)(nil),           // 4: ppanel.node.server.v1.PushServerStatusRequest
-	(*Result)(nil),                            // 5: ppanel.node.server.v1.Result
-	(*ServerBasic)(nil),                       // 6: ppanel.node.server.v1.ServerBasic
-	(*ServerConfigData)(nil),                  // 7: ppanel.node.server.v1.ServerConfigData
-	(*GetServerConfigResponse)(nil),           // 8: ppanel.node.server.v1.GetServerConfigResponse
-	(*ServerUser)(nil),                        // 9: ppanel.node.server.v1.ServerUser
-	(*ServerUserListData)(nil),                // 10: ppanel.node.server.v1.ServerUserListData
-	(*GetServerUserListResponse)(nil),         // 11: ppanel.node.server.v1.GetServerUserListResponse
-	(*DNSResolver)(nil),                       // 12: ppanel.node.server.v1.DNSResolver
-	(*Outbound)(nil),                          // 13: ppanel.node.server.v1.Outbound
-	(*ServerProtocol)(nil),                    // 14: ppanel.node.server.v1.ServerProtocol
-	(*QueryServerProtocolConfigData)(nil),     // 15: ppanel.node.server.v1.QueryServerProtocolConfigData
-	(*QueryServerProtocolConfigResponse)(nil), // 16: ppanel.node.server.v1.QueryServerProtocolConfigResponse
-	(*structpb.Struct)(nil),                   // 17: google.protobuf.Struct
-	(*structpb.Value)(nil),                    // 18: google.protobuf.Value
+	(RouteKind)(0),                            // 0: ppanel.node.server.v1.RouteKind
+	(*OnlineUser)(nil),                        // 1: ppanel.node.server.v1.OnlineUser
+	(*PushOnlineUsersRequest)(nil),            // 2: ppanel.node.server.v1.PushOnlineUsersRequest
+	(*UserTraffic)(nil),                       // 3: ppanel.node.server.v1.UserTraffic
+	(*PushUserTrafficRequest)(nil),            // 4: ppanel.node.server.v1.PushUserTrafficRequest
+	(*PushServerStatusRequest)(nil),           // 5: ppanel.node.server.v1.PushServerStatusRequest
+	(*RoutingIdentity)(nil),                   // 6: ppanel.node.server.v1.RoutingIdentity
+	(*RoutingError)(nil),                      // 7: ppanel.node.server.v1.RoutingError
+	(*Result)(nil),                            // 8: ppanel.node.server.v1.Result
+	(*ServerBasic)(nil),                       // 9: ppanel.node.server.v1.ServerBasic
+	(*ServerConfigData)(nil),                  // 10: ppanel.node.server.v1.ServerConfigData
+	(*GetServerConfigResponse)(nil),           // 11: ppanel.node.server.v1.GetServerConfigResponse
+	(*ServerUser)(nil),                        // 12: ppanel.node.server.v1.ServerUser
+	(*ServerUserListData)(nil),                // 13: ppanel.node.server.v1.ServerUserListData
+	(*GetServerUserListResponse)(nil),         // 14: ppanel.node.server.v1.GetServerUserListResponse
+	(*DNSResolver)(nil),                       // 15: ppanel.node.server.v1.DNSResolver
+	(*Outbound)(nil),                          // 16: ppanel.node.server.v1.Outbound
+	(*RouteRule)(nil),                         // 17: ppanel.node.server.v1.RouteRule
+	(*RoutingPolicy)(nil),                     // 18: ppanel.node.server.v1.RoutingPolicy
+	(*ServerProtocol)(nil),                    // 19: ppanel.node.server.v1.ServerProtocol
+	(*QueryServerProtocolConfigData)(nil),     // 20: ppanel.node.server.v1.QueryServerProtocolConfigData
+	(*QueryServerProtocolConfigResponse)(nil), // 21: ppanel.node.server.v1.QueryServerProtocolConfigResponse
+	(*structpb.Struct)(nil),                   // 22: google.protobuf.Struct
+	(*structpb.Value)(nil),                    // 23: google.protobuf.Value
 }
 var file_api_server_v1_node_server_proto_depIdxs = []int32{
-	0,  // 0: ppanel.node.server.v1.PushOnlineUsersRequest.users:type_name -> ppanel.node.server.v1.OnlineUser
-	2,  // 1: ppanel.node.server.v1.PushUserTrafficRequest.traffic:type_name -> ppanel.node.server.v1.UserTraffic
-	6,  // 2: ppanel.node.server.v1.ServerConfigData.basic:type_name -> ppanel.node.server.v1.ServerBasic
-	17, // 3: ppanel.node.server.v1.ServerConfigData.config:type_name -> google.protobuf.Struct
-	7,  // 4: ppanel.node.server.v1.GetServerConfigResponse.data:type_name -> ppanel.node.server.v1.ServerConfigData
-	9,  // 5: ppanel.node.server.v1.ServerUserListData.users:type_name -> ppanel.node.server.v1.ServerUser
-	10, // 6: ppanel.node.server.v1.GetServerUserListResponse.data:type_name -> ppanel.node.server.v1.ServerUserListData
-	18, // 7: ppanel.node.server.v1.Outbound.plugin_options:type_name -> google.protobuf.Value
-	18, // 8: ppanel.node.server.v1.ServerProtocol.plugin_options:type_name -> google.protobuf.Value
-	12, // 9: ppanel.node.server.v1.QueryServerProtocolConfigData.dns:type_name -> ppanel.node.server.v1.DNSResolver
-	13, // 10: ppanel.node.server.v1.QueryServerProtocolConfigData.outbound:type_name -> ppanel.node.server.v1.Outbound
-	14, // 11: ppanel.node.server.v1.QueryServerProtocolConfigData.protocols:type_name -> ppanel.node.server.v1.ServerProtocol
-	15, // 12: ppanel.node.server.v1.QueryServerProtocolConfigResponse.data:type_name -> ppanel.node.server.v1.QueryServerProtocolConfigData
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	1,  // 0: ppanel.node.server.v1.PushOnlineUsersRequest.users:type_name -> ppanel.node.server.v1.OnlineUser
+	3,  // 1: ppanel.node.server.v1.PushUserTrafficRequest.traffic:type_name -> ppanel.node.server.v1.UserTraffic
+	6,  // 2: ppanel.node.server.v1.PushServerStatusRequest.routing_applied:type_name -> ppanel.node.server.v1.RoutingIdentity
+	6,  // 3: ppanel.node.server.v1.PushServerStatusRequest.routing_pending:type_name -> ppanel.node.server.v1.RoutingIdentity
+	7,  // 4: ppanel.node.server.v1.PushServerStatusRequest.routing_error:type_name -> ppanel.node.server.v1.RoutingError
+	6,  // 5: ppanel.node.server.v1.RoutingError.identity:type_name -> ppanel.node.server.v1.RoutingIdentity
+	9,  // 6: ppanel.node.server.v1.ServerConfigData.basic:type_name -> ppanel.node.server.v1.ServerBasic
+	22, // 7: ppanel.node.server.v1.ServerConfigData.config:type_name -> google.protobuf.Struct
+	10, // 8: ppanel.node.server.v1.GetServerConfigResponse.data:type_name -> ppanel.node.server.v1.ServerConfigData
+	12, // 9: ppanel.node.server.v1.ServerUserListData.users:type_name -> ppanel.node.server.v1.ServerUser
+	13, // 10: ppanel.node.server.v1.GetServerUserListResponse.data:type_name -> ppanel.node.server.v1.ServerUserListData
+	23, // 11: ppanel.node.server.v1.Outbound.plugin_options:type_name -> google.protobuf.Value
+	0,  // 12: ppanel.node.server.v1.RouteRule.kind:type_name -> ppanel.node.server.v1.RouteKind
+	16, // 13: ppanel.node.server.v1.RoutingPolicy.outbounds:type_name -> ppanel.node.server.v1.Outbound
+	17, // 14: ppanel.node.server.v1.RoutingPolicy.rules:type_name -> ppanel.node.server.v1.RouteRule
+	23, // 15: ppanel.node.server.v1.ServerProtocol.plugin_options:type_name -> google.protobuf.Value
+	15, // 16: ppanel.node.server.v1.QueryServerProtocolConfigData.dns:type_name -> ppanel.node.server.v1.DNSResolver
+	16, // 17: ppanel.node.server.v1.QueryServerProtocolConfigData.outbound:type_name -> ppanel.node.server.v1.Outbound
+	19, // 18: ppanel.node.server.v1.QueryServerProtocolConfigData.protocols:type_name -> ppanel.node.server.v1.ServerProtocol
+	18, // 19: ppanel.node.server.v1.QueryServerProtocolConfigData.routing:type_name -> ppanel.node.server.v1.RoutingPolicy
+	20, // 20: ppanel.node.server.v1.QueryServerProtocolConfigResponse.data:type_name -> ppanel.node.server.v1.QueryServerProtocolConfigData
+	21, // [21:21] is the sub-list for method output_type
+	21, // [21:21] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_api_server_v1_node_server_proto_init() }
@@ -2167,18 +2670,20 @@ func file_api_server_v1_node_server_proto_init() {
 	if File_api_server_v1_node_server_proto != nil {
 		return
 	}
+	file_api_server_v1_node_server_proto_msgTypes[16].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_server_v1_node_server_proto_rawDesc), len(file_api_server_v1_node_server_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   17,
+			NumEnums:      1,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_api_server_v1_node_server_proto_goTypes,
 		DependencyIndexes: file_api_server_v1_node_server_proto_depIdxs,
+		EnumInfos:         file_api_server_v1_node_server_proto_enumTypes,
 		MessageInfos:      file_api_server_v1_node_server_proto_msgTypes,
 	}.Build()
 	File_api_server_v1_node_server_proto = out.File

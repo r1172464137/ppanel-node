@@ -19,6 +19,13 @@ func checkHTTPResponse(r *resty.Response, url string) error {
 		return fmt.Errorf("服务端返回为空")
 	}
 	if r.StatusCode() >= http.StatusBadRequest {
+		if isProtobufResponse(r) {
+			result, err := unmarshalProtobufResult(r.Body())
+			if err != nil {
+				return fmt.Errorf("访问 %s 失败: HTTP %d: %w", url, r.StatusCode(), err)
+			}
+			return fmt.Errorf("访问 %s 失败: HTTP %d code=%d msg=%s", url, r.StatusCode(), result.Code, result.Message)
+		}
 		return fmt.Errorf("访问 %s 失败: %s", url, string(r.Body()))
 	}
 	return nil

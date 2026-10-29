@@ -7,15 +7,19 @@ import (
 	"github.com/perfect-panel/ppanel-node/conf"
 )
 
-func TestNewSkipsUnsupportedProtocols(t *testing.T) {
+func testNodeRouting() *panel.RoutingPolicy {
+	return &panel.RoutingPolicy{Version: 1, Outbounds: []panel.Outbound{}, Rules: []panel.RouteRule{}, DefaultOutboundID: "direct", RoutingIdentity: panel.RoutingIdentity{Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1}}
+}
+
+func TestNewSkipsDisabledUnsupportedProtocols(t *testing.T) {
 	protocols := []panel.Protocol{
-		{Type: "wireguard", Enable: true, Port: 51820},
+		{Type: "wireguard", Enable: false, Port: 51820},
 		{Type: "vless", Enable: true, Port: 443, Transport: "tcp"},
 	}
 	node, err := New(nil, &conf.Conf{ApiConfig: conf.ServerApiConfig{
 		ApiHost: "https://panel.example", ServerId: 7,
 		ACMEEmail: "admin@example.test", ACMECADirURL: "https://acme.example.test/directory",
-	}}, &panel.ServerConfigResponse{Data: &panel.Data{Protocols: &protocols}})
+	}}, &panel.ServerConfigResponse{Data: &panel.Data{Protocols: &protocols, Total: len(protocols), Routing: testNodeRouting()}})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

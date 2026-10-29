@@ -24,25 +24,20 @@ type Handle struct {
 }
 
 func Setup(cfg Config) (*Handle, error) {
-	log.SetFormatter(&log.TextFormatter{
-		FullTimestamp: true,
-		DisableQuote:  true,
-		PadLevelText:  false,
-	})
+	var output io.Writer = os.Stdout
+	handle := &Handle{}
+	if strings.TrimSpace(cfg.Output) != "" {
+		f, err := os.OpenFile(cfg.Output, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return nil, err
+		}
+		output, handle.closer = f, f
+	}
+	// Do not change the live logger if preparing a replacement failed.
+	log.SetFormatter(&log.TextFormatter{FullTimestamp: true, DisableQuote: true, PadLevelText: false})
 	log.SetLevel(parseLevel(cfg.Level))
-
-	if strings.TrimSpace(cfg.Output) == "" {
-		log.SetOutput(os.Stdout)
-		return &Handle{}, nil
-	}
-
-	f, err := os.OpenFile(cfg.Output, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		log.SetOutput(os.Stdout)
-		return &Handle{}, err
-	}
-	log.SetOutput(f)
-	return &Handle{closer: f}, nil
+	log.SetOutput(output)
+	return handle, nil
 }
 
 func (h *Handle) Close() error {

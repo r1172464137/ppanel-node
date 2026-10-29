@@ -6,67 +6,24 @@ import (
 	"github.com/perfect-panel/ppanel-node/api/panel"
 )
 
-func TestGetCustomConfigSkipsEmptyBlockRules(t *testing.T) {
-	dns := []panel.DNSItem{}
-	block := []string{}
-	outbound := []panel.Outbound{}
-	protocols := []panel.Protocol{}
-
-	_, _, routeConfig, err := GetCustomConfig(&panel.ServerConfigResponse{
-		Data: &panel.Data{
-			IPStrategy: "prefer_ipv4",
-			DNS:        &dns,
-			Block:      &block,
-			Outbound:   &outbound,
-			Protocols:  &protocols,
-		},
-	})
+func TestGetCustomConfigEmptyOrderedRules(t *testing.T) {
+	cfg := orderedConfig([]panel.RouteRule{}, nil)
+	_, _, routes, err := GetCustomConfig(cfg)
 	if err != nil {
-		t.Fatalf("GetCustomConfig() error = %v", err)
+		t.Fatal(err)
 	}
-
-	if got := len(routeConfig.GetRule()); got != 1 {
-		t.Fatalf("route rules len = %d, want only default DNS rule", got)
+	if len(routes.GetRule()) != 1 {
+		t.Fatalf("rules = %d", len(routes.GetRule()))
 	}
 }
-
-func TestGetCustomConfigBuildsTypedOutbound(t *testing.T) {
-	dns := []panel.DNSItem{}
-	block := []string{}
-	outbound := []panel.Outbound{
-		{
-			Name:      "proxy",
-			Protocol:  "vless",
-			Address:   "example.com",
-			Port:      443,
-			UUID:      "00000000-0000-0000-0000-000000000001",
-			Security:  "tls",
-			SNI:       "example.com",
-			Transport: "websocket",
-			Host:      "example.com",
-			Path:      "/ws",
-			Rules:     []string{"suffix:example.com"},
-		},
-	}
-	protocols := []panel.Protocol{}
-
-	_, outbounds, routeConfig, err := GetCustomConfig(&panel.ServerConfigResponse{
-		Data: &panel.Data{
-			IPStrategy: "prefer_ipv4",
-			DNS:        &dns,
-			Block:      &block,
-			Outbound:   &outbound,
-			Protocols:  &protocols,
-		},
-	})
+func TestGetCustomConfigBuildsTypedOrderedOutbound(t *testing.T) {
+	ob := panel.Outbound{ID: orderedSOCKSID, Name: "proxy", Protocol: "vless", Address: "example.com", Port: 443, UUID: "00000000-0000-0000-0000-000000000001", Security: "tls", SNI: "example.com", Transport: "websocket", Host: "example.com", Path: "/ws"}
+	cfg := orderedConfig([]panel.RouteRule{orderedRule(0, "domain", "suffix:example.com", orderedSOCKSID, true)}, []panel.Outbound{ob})
+	_, out, routes, err := GetCustomConfig(cfg)
 	if err != nil {
-		t.Fatalf("GetCustomConfig() error = %v", err)
+		t.Fatal(err)
 	}
-
-	if got := len(outbounds); got != 4 {
-		t.Fatalf("outbounds len = %d, want 4", got)
-	}
-	if got := len(routeConfig.GetRule()); got != 2 {
-		t.Fatalf("route rules len = %d, want default DNS + custom outbound", got)
+	if len(out) != 4 || len(routes.GetRule()) != 2 {
+		t.Fatalf("outbounds=%d routes=%d", len(out), len(routes.GetRule()))
 	}
 }

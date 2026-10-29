@@ -35,7 +35,7 @@ jobs:
       - name: Installer helpers and node contract/data-plane tests
         run: |
           bash scripts/test-release.sh
-          go test -race -timeout 10m ./api/panel ./core/outbound ./core/inbound ./core -count=1
+          go test -race -timeout 10m ./api/panel ./core/outbound ./core/inbound ./core/streamguard ./core/app/dispatcher ./core ./node ./cmd ./limiter ./common/task ./common/logx -count=1
 
   prepare:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'

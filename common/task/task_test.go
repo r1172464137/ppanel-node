@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"math"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -43,6 +44,31 @@ func TestCloseCancelsAndWaitsForExecution(t *testing.T) {
 		}
 		task.Close()
 	})
+}
+
+func TestHugeIntervalCannotOverflowExecutionTimeout(t *testing.T) {
+	deadline := make(chan time.Duration, 1)
+	task := &Task{Interval: time.Duration(math.MaxInt64), Execute: func(ctx context.Context) error {
+		d, ok := ctx.Deadline()
+		if !ok {
+			t.Error("missing deadline")
+			return nil
+		}
+		deadline <- time.Until(d)
+		return nil
+	}}
+	if err := task.Start(true); err != nil {
+		t.Fatal(err)
+	}
+	defer task.Close()
+	select {
+	case got := <-deadline:
+		if got < 4*time.Minute || got > 5*time.Minute {
+			t.Fatalf("overflowed timeout: %v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("task did not execute")
+	}
 }
 
 func TestPeriodicTaskStopsAfterClose(t *testing.T) {

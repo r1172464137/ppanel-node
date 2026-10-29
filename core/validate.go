@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
+	outboundbuilder "github.com/perfect-panel/ppanel-node/core/outbound"
+	"github.com/perfect-panel/ppanel-node/core/streamguard"
 )
 
 func ValidateServerConfig(serverconfig *panel.ServerConfigResponse) error {
@@ -14,11 +16,31 @@ func ValidateServerConfig(serverconfig *panel.ServerConfigResponse) error {
 	if serverconfig.Data == nil {
 		return fmt.Errorf("server config data is nil")
 	}
-	if serverconfig.Data.Protocols == nil {
-		return fmt.Errorf("protocol config is nil")
+	if err := panel.ValidateDeliveryMetadata(serverconfig.Data); err != nil {
+		return err
+	}
+	if err := outboundbuilder.ValidateOrdered(serverconfig.Data); err != nil {
+		return fmt.Errorf("ordered routing v1 required: %w", err)
+	}
+	if err := outboundbuilder.ValidateDNS(serverconfig.Data); err != nil {
+		return err
 	}
 	for i, protocol := range *serverconfig.Data.Protocols {
+		if protocol.UoT || protocol.UoTVersion != 0 {
+			return fmt.Errorf("protocol[%d] configured UDP-over-TCP is unsupported", i)
+		}
+		if err := streamguard.ValidateNoUOTValue(protocol.PluginOptions); err != nil {
+			return fmt.Errorf("protocol[%d]: %w", i, err)
+		}
+		if strings.TrimSpace(protocol.XHTTPExtra) != "" {
+			if err := streamguard.ValidateNoUOTJSON([]byte(protocol.XHTTPExtra)); err != nil {
+				return fmt.Errorf("protocol[%d]: %w", i, err)
+			}
+		}
 		if !panel.IsSupportedProtocol(protocol.Type) {
+			if protocol.Enable {
+				return fmt.Errorf("protocol[%d] %q is enabled but unsupported", i, protocol.Type)
+			}
 			continue
 		}
 		if err := validateProtocol(protocol); err != nil {
@@ -40,6 +62,22 @@ func validateProtocol(protocol panel.Protocol) error {
 	}
 	if protocol.Port <= 0 || protocol.Port > 65535 {
 		return fmt.Errorf("port must be between 1 and 65535")
+	}
+	if err := streamguard.ValidateURI("path", protocol.Path, false); err != nil {
+		return err
+	}
+	if err := streamguard.ValidateURI("obfs_path", protocol.ObfsPath, false); err != nil {
+		return err
+	}
+	if strings.TrimSpace(protocol.XHTTPExtra) != "" {
+		if err := streamguard.ValidateXHTTPExtra([]byte(protocol.XHTTPExtra), nil); err != nil {
+			return err
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(protocol.Type), "shadowsocks") {
+		if err := panel.ValidateShadowsocksInboundPlugin(protocol); err != nil {
+			return err
+		}
 	}
 
 	switch protocol.Type {

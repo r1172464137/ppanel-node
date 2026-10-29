@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-resty/resty/v2"
@@ -24,29 +25,45 @@ type NodeClient struct {
 	userEtag    string
 	UserList    *UserListBody
 	AliveMap    *AliveMap
+	publication *publicationLease
 }
 
 type ServerClient struct {
-	Client           *resty.Client
-	APIHost          string
-	SecretKey        string
-	ServerId         int
+	Client      *resty.Client
+	APIHost     string
+	SecretKey   string
+	ServerId    int
+	Timeout     int
+	publication *publicationLease
+	*serverClientState
+}
+
+// Candidate ownership is shared if only the HTTP timeout changes. Old and
+// new transports can overlap during preparation without losing observations.
+type serverClientState struct {
 	ServerConfigEtag string
 	responseBodyHash string
 	UseProtobuf      bool
+	fetchGate        chan struct{}
+	statusMu         sync.Mutex
+	mu               sync.Mutex
+	observedEtag     string
+	observed         *ServerConfigResponse
+	pending          *ServerConfigResponse
+	applied          *ServerConfigResponse
+	State            *RoutingState
 }
 
 func NewNodeClient(c *conf.NodeApiConfig) (*NodeClient, error) {
 	client := resty.New()
 	client.SetRetryCount(0)
-	if c.Timeout > 0 {
-		client.SetTimeout(time.Duration(c.Timeout) * time.Second)
-	} else {
-		client.SetTimeout(30 * time.Second)
+	if err := ValidateAPITimeout(c.Timeout); err != nil {
+		return nil, err
 	}
+	client.SetTimeout(apiTimeout(c.Timeout))
 	client.OnError(func(req *resty.Request, err error) {
-		if v, ok := errors.AsType[*resty.ResponseError](err); ok {
-			logx.Component("panel").WithError(v.Err).Error("面板请求失败")
+		if _, ok := errors.AsType[*resty.ResponseError](err); ok {
+			logx.Component("panel").Error("面板请求失败")
 		}
 	})
 	client.SetBaseURL(c.APIHost)
@@ -91,14 +108,10 @@ func (c *NodeClient) SetCertificateSHA256(fingerprint string) {
 func NewServerClient(c *conf.ServerApiConfig) *ServerClient {
 	client := resty.New()
 	client.SetRetryCount(0)
-	if c.Timeout > 0 {
-		client.SetTimeout(time.Duration(c.Timeout) * time.Second)
-	} else {
-		client.SetTimeout(30 * time.Second)
-	}
+	client.SetTimeout(apiTimeout(c.Timeout))
 	client.OnError(func(req *resty.Request, err error) {
-		if v, ok := errors.AsType[*resty.ResponseError](err); ok {
-			logx.Component("panel").WithError(v.Err).Error("面板请求失败")
+		if _, ok := errors.AsType[*resty.ResponseError](err); ok {
+			logx.Component("panel").Error("面板请求失败")
 		}
 	})
 	client.SetBaseURL(c.ApiHost)
@@ -106,11 +119,37 @@ func NewServerClient(c *conf.ServerApiConfig) *ServerClient {
 		"secret_key": c.SecretKey,
 	})
 	return &ServerClient{
-		Client:    client,
-		APIHost:   c.ApiHost,
-		SecretKey: c.SecretKey,
-		ServerId:  c.ServerId,
+		Client:            client,
+		APIHost:           c.ApiHost,
+		SecretKey:         c.SecretKey,
+		ServerId:          c.ServerId,
+		Timeout:           c.Timeout,
+		publication:       newPublicationLease(c.ServerId),
+		serverClientState: &serverClientState{State: NewRoutingState(c.ServerId), fetchGate: make(chan struct{}, 1)},
 	}
+}
+
+// ShareCandidateState is used only for the same panel/server credentials when
+// a replacement transport has a different timeout.
+func (c *ServerClient) ShareCandidateState(old *ServerClient) bool {
+	if c == nil || old == nil || c.APIHost != old.APIHost || c.ServerId != old.ServerId || c.SecretKey != old.SecretKey {
+		return false
+	}
+	c.serverClientState = old.serverClientState
+	return true
+}
+
+func ValidateAPITimeout(seconds int) error {
+	if seconds < 0 || seconds > 86400 {
+		return fmt.Errorf("API timeout must be 0 or 1..86400 seconds")
+	}
+	return nil
+}
+func apiTimeout(seconds int) time.Duration {
+	if seconds <= 0 || seconds > 86400 {
+		return 30 * time.Second
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // IsSupportedProtocol reports whether this node binary can consume and run a

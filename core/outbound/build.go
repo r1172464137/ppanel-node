@@ -30,19 +30,14 @@ type BuildResult struct {
 }
 
 func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult, error) {
-	if err := validateRouteConfigRawLimits(serverconfig.Data); err != nil {
-		return nil, err
+	if serverconfig == nil || serverconfig.Data == nil {
+		return nil, fmt.Errorf("server configuration data is empty")
 	}
-	globalBlockBudget := routeRuleBudget{
-		scope: "global block", maxRules: MaxGlobalBlockAggregateRules, maxBytes: MaxGlobalBlockAggregateBytes,
-	}
-	outboundBudget := routeRuleBudget{
-		scope: "outbound", maxRules: MaxOutboundAggregateRules, maxBytes: MaxOutboundAggregateBytes,
-	}
-	configBudget := routeRuleBudget{
-		scope: "structured config", maxRules: MaxStructuredConfigAggregateRules, maxBytes: MaxStructuredConfigAggregateBytes,
-	}
+	return buildOrdered(serverconfig, hasIPv6)
+}
 
+// buildBase builds only DNS, the built-in connections and the UDP/53 rule.
+func buildBase(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult, error) {
 	var ipStrategy string
 	if serverconfig.Data.IPStrategy != "" {
 		switch serverconfig.Data.IPStrategy {
@@ -61,10 +56,6 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 		}
 	}
 	dnsConfig := serverconfig.Data.DNS
-	blockDomains := serverconfig.Data.Block
-	blockIPs := serverconfig.Data.BlockIPs
-	blockProtocols := serverconfig.Data.BlockProtocols
-	outboundList := serverconfig.Data.Outbound
 
 	//default dns
 	queryStrategy := "UseIPv4v6"
@@ -85,40 +76,28 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 	//custom dns
 	if dnsConfig != nil {
 		for i, item := range *dnsConfig {
-			domains, err := buildDomainRules(item.Domains)
+			server, err := buildDNSResolver(item, ipStrategy)
 			if err != nil {
-				return nil, fmt.Errorf("invalid DNS resolver %d domain rules: %w", i+1, err)
-			}
-			/*switch item.Proto {
-			case "udp":
-				item.Address = item.Address
-			case "tcp":
-				item.Address = "tcp://" + item.Address
-			case "tls":
-				item.Address = "tls://" + item.Address
-			case "https":
-				item.Address = "https://" + item.Address
-			case "quic":
-				item.Address = "quic://" + item.Address
-			}*/
-			server := &coreConf.NameServerConfig{
-				Address: &coreConf.Address{
-					Address: xnet.ParseAddress(item.Address),
-				},
-				QueryStrategy: ipStrategy,
-				Domains:       domains,
+				return nil, fmt.Errorf("DNS resolver %d: %w", i+1, err)
 			}
 			coreDnsConfig.Servers = append(coreDnsConfig.Servers, server)
 		}
 	}
 
-	//default outbound
-	defaultoutbound, _ := buildDefaultOutbound()
-	coreOutboundConfig := append([]*core.OutboundHandlerConfig{}, defaultoutbound)
-	block, _ := buildBlockOutbound()
-	coreOutboundConfig = append(coreOutboundConfig, block)
-	dns, _ := buildDnsOutbound()
-	coreOutboundConfig = append(coreOutboundConfig, dns)
+	// Built-in outbounds retain the existing Freedom safety settings.
+	defaultoutbound, err := buildDefaultOutbound()
+	if err != nil {
+		return nil, fmt.Errorf("build direct: %w", err)
+	}
+	block, err := buildBlockOutbound()
+	if err != nil {
+		return nil, fmt.Errorf("build block: %w", err)
+	}
+	dns, err := buildDnsOutbound()
+	if err != nil {
+		return nil, fmt.Errorf("build DNS outbound: %w", err)
+	}
+	coreOutboundConfig := []*core.OutboundHandlerConfig{defaultoutbound, block, dns}
 
 	//default route
 	domainStrategy := "AsIs"
@@ -132,128 +111,6 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 		DomainStrategy: &domainStrategy,
 	}
 
-	// Global block categories are separate OR rules. Their fixed order also
-	// guarantees that every block rule wins over every custom outbound rule.
-	if blockProtocols != nil {
-		protocols, err := buildProtocolRules(*blockProtocols)
-		if err != nil {
-			return nil, fmt.Errorf("invalid global block protocol rules: %w", err)
-		}
-		if err := globalBlockBudget.add("block_protocols", protocols); err != nil {
-			return nil, err
-		}
-		if err := configBudget.add("block_protocols", protocols); err != nil {
-			return nil, err
-		}
-		if err := appendRouteRule(coreRouterConfig, "protocol", protocols, BlockTag); err != nil {
-			return nil, err
-		}
-	}
-	if blockIPs != nil {
-		ips, err := buildIPRules(*blockIPs)
-		if err != nil {
-			return nil, fmt.Errorf("invalid global block IP rules: %w", err)
-		}
-		if err := globalBlockBudget.add("block_ips", ips); err != nil {
-			return nil, err
-		}
-		if err := configBudget.add("block_ips", ips); err != nil {
-			return nil, err
-		}
-		if err := appendRouteRule(coreRouterConfig, "ip", ips, BlockTag); err != nil {
-			return nil, err
-		}
-	}
-	if blockDomains != nil {
-		domains, err := buildDomainRules(*blockDomains)
-		if err != nil {
-			return nil, fmt.Errorf("invalid global block domain rules: %w", err)
-		}
-		if err := globalBlockBudget.add("block", domains); err != nil {
-			return nil, err
-		}
-		if err := configBudget.add("block", domains); err != nil {
-			return nil, err
-		}
-		if err := appendRouteRule(coreRouterConfig, "domain", domains, BlockTag); err != nil {
-			return nil, err
-		}
-	}
-
-	// Keep each outbound's three OR rules together, in panel list order.
-	if outboundList != nil {
-		for _, outbounditem := range *outboundList {
-			// Parse every rule before protocol support is considered. This is
-			// intentionally fail-closed: malformed rules on a legacy/unsupported
-			// outbound must not be silently accepted and later become active.
-			domains, err := buildDomainRules(outbounditem.Rules)
-			if err != nil {
-				return nil, fmt.Errorf("invalid outbound %q domain rules: %w", outbounditem.Name, err)
-			}
-			ips, err := buildIPRules(outbounditem.IPRules)
-			if err != nil {
-				return nil, fmt.Errorf("invalid outbound %q IP rules: %w", outbounditem.Name, err)
-			}
-			protocols, err := buildProtocolRules(outbounditem.ProtocolRules)
-			if err != nil {
-				return nil, fmt.Errorf("invalid outbound %q protocol rules: %w", outbounditem.Name, err)
-			}
-			for _, group := range []struct {
-				field  string
-				values []string
-			}{
-				{field: "rules", values: domains},
-				{field: "ip_rules", values: ips},
-				{field: "protocol_rules", values: protocols},
-			} {
-				field := fmt.Sprintf("outbound %q %s", outbounditem.Name, group.field)
-				if err := outboundBudget.add(field, group.values); err != nil {
-					return nil, err
-				}
-				if err := configBudget.add(field, group.values); err != nil {
-					return nil, err
-				}
-			}
-
-			protocol, rawSettings, err := buildOutboundSettings(outbounditem)
-			if err != nil {
-				return nil, err
-			}
-			if protocol == "" || rawSettings == nil {
-				continue
-			}
-			streamSettings, err := buildOutboundStreamConfig(outbounditem)
-			if err != nil {
-				return nil, err
-			}
-			outbound := &coreConf.OutboundDetourConfig{
-				Tag:           outbounditem.Name,
-				Protocol:      protocol,
-				Settings:      rawSettings,
-				StreamSetting: streamSettings,
-			}
-			customOutbound, err := outbound.Build()
-			if err != nil {
-				return nil, fmt.Errorf("build outbound %q (%s): %w", outbounditem.Name, protocol, err)
-			}
-			for _, rule := range []struct {
-				field  string
-				values []string
-			}{
-				{field: "domain", values: domains},
-				{field: "ip", values: ips},
-				{field: "protocol", values: protocols},
-			} {
-				if err := appendRouteRule(coreRouterConfig, rule.field, rule.values, customOutbound.Tag); err != nil {
-					return nil, err
-				}
-			}
-			if hasOutboundWithTag(coreOutboundConfig, customOutbound.Tag) {
-				continue
-			}
-			coreOutboundConfig = append(coreOutboundConfig, customOutbound)
-		}
-	}
 	//build config
 	DNSConfig, err := coreDnsConfig.Build()
 	if err != nil {
@@ -270,31 +127,11 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 	}, nil
 }
 
-func hasOutboundWithTag(list []*core.OutboundHandlerConfig, tag string) bool {
-	for _, o := range list {
-		if o != nil && o.Tag == tag {
-			return true
-		}
-	}
-	return false
-}
-
 const (
-	// Canonical limits are shared with the backend/frontend contract.
-	MaxRouteRules                     = 1024
-	MaxRouteRuleBytes                 = 4096
-	MaxNodeOutbounds                  = 128
-	MaxOutboundAggregateRules         = 4096
-	MaxOutboundAggregateBytes         = 48 * 1024
-	MaxPersistedRouteJSONBytes        = 60 * 1024
-	MaxGlobalBlockAggregateRules      = 3 * MaxRouteRules
-	MaxGlobalBlockAggregateBytes      = 3 * MaxPersistedRouteJSONBytes
-	MaxStructuredConfigAggregateRules = MaxGlobalBlockAggregateRules + MaxOutboundAggregateRules
-	MaxStructuredConfigAggregateBytes = MaxGlobalBlockAggregateBytes + MaxOutboundAggregateBytes
-	// Raw bounds are node-only pre-normalization DoS guards. They deliberately
-	// permit duplicates above the canonical unique-value limits.
+	MaxRouteRules                 = 1024
+	MaxRouteRuleBytes             = 4096
+	MaxNodeOutbounds              = 128
 	MaxRawRouteEntriesPerCategory = 4096
-	MaxRawStructuredRouteEntries  = 8192
 )
 
 var (
@@ -303,13 +140,14 @@ var (
 	domainLabelPattern  = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
 )
 
-func appendRouteRule(config *coreConf.RouterConfig, field string, values []string, outboundTag string) error {
+func appendRouteRule(config *coreConf.RouterConfig, field string, values []string, outboundTag, ruleID string) error {
 	if len(values) == 0 {
 		return nil
 	}
 	rawRule, err := json.Marshal(map[string]interface{}{
 		field:         values,
 		"outboundTag": outboundTag,
+		"ruleTag":     ruleID,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal %s route rule for outbound %q: %w", field, outboundTag, err)
@@ -537,68 +375,6 @@ func (b *routeRuleBudget) add(field string, canonical []string) error {
 	return nil
 }
 
-func validateRouteConfigRawLimits(data *panel.Data) error {
-	if data == nil {
-		return fmt.Errorf("server configuration data is empty")
-	}
-	if data.Outbound != nil && len(*data.Outbound) > MaxNodeOutbounds {
-		return fmt.Errorf("structured configuration contains more than %d outbounds", MaxNodeOutbounds)
-	}
-	rawStructured := 0
-	check := func(field string, rules []string, structured bool) error {
-		if len(rules) > MaxRawRouteEntriesPerCategory {
-			return fmt.Errorf("%s contains more than %d raw entries", field, MaxRawRouteEntriesPerCategory)
-		}
-		if structured {
-			rawStructured += len(rules)
-			if rawStructured > MaxRawStructuredRouteEntries {
-				return fmt.Errorf("structured route configuration contains more than %d raw entries at %s", MaxRawStructuredRouteEntries, field)
-			}
-		}
-		return nil
-	}
-	// DNS uses the shared domain parser but is intentionally excluded from the
-	// structured block/outbound aggregate contract.
-	if data.DNS != nil {
-		for i, resolver := range *data.DNS {
-			if err := check(fmt.Sprintf("dns[%d].domains", i), resolver.Domains, false); err != nil {
-				return err
-			}
-		}
-	}
-	for _, group := range []struct {
-		field string
-		rules *[]string
-	}{
-		{field: "block", rules: data.Block},
-		{field: "block_ips", rules: data.BlockIPs},
-		{field: "block_protocols", rules: data.BlockProtocols},
-	} {
-		if group.rules != nil {
-			if err := check(group.field, *group.rules, true); err != nil {
-				return err
-			}
-		}
-	}
-	if data.Outbound != nil {
-		for i, outbound := range *data.Outbound {
-			for _, group := range []struct {
-				field string
-				rules []string
-			}{
-				{field: "rules", rules: outbound.Rules},
-				{field: "ip_rules", rules: outbound.IPRules},
-				{field: "protocol_rules", rules: outbound.ProtocolRules},
-			} {
-				if err := check(fmt.Sprintf("outbound[%d].%s", i, group.field), group.rules, true); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
 func normalizeOutboundProtocol(protocol string) string {
 	switch strings.ToLower(strings.TrimSpace(protocol)) {
 	case "direct":
@@ -655,15 +431,6 @@ func buildOutboundSettings(item panel.Outbound) (string, *json.RawMessage, error
 		settings["port"] = item.Port
 		settings["method"] = firstNonEmpty(item.Cipher, "chacha20-ietf-poly1305")
 		settings["password"] = item.Password
-		settings["uot"] = true
-		if item.UoT {
-			settings["uot"] = item.UoT
-		}
-		uotVersion := item.UoTVersion
-		if uotVersion == 0 {
-			uotVersion = 2
-		}
-		settings["uotVersion"] = uotVersion
 	case "trojan":
 		settings["address"] = strings.TrimSpace(item.Address)
 		settings["port"] = item.Port
@@ -685,19 +452,6 @@ func buildOutboundSettings(item panel.Outbound) (string, *json.RawMessage, error
 		settings["address"] = strings.TrimSpace(item.Address)
 		settings["port"] = item.Port
 		settings["password"] = item.Password
-	case "tuic":
-		settings["address"] = strings.TrimSpace(item.Address)
-		settings["port"] = item.Port
-		settings["id"] = firstNonEmpty(item.UUID, item.Password)
-		settings["password"] = item.Password
-		if congestion := strings.TrimSpace(item.CongestionController); congestion != "" {
-			settings["congestionControl"] = congestion
-		}
-		settings["udpStream"] = item.UDPStream
-		settings["zeroRttHandshake"] = item.ReduceRTT
-		if item.Heartbeat > 0 {
-			settings["heartbeat"] = item.Heartbeat
-		}
 	case "hysteria":
 		settings["version"] = 2
 		settings["address"] = strings.TrimSpace(item.Address)
@@ -731,8 +485,6 @@ func buildOutboundStreamConfig(item panel.Outbound) (*coreConf.StreamConfig, err
 		switch protocol {
 		case "vmess", "vless", "trojan", "anytls":
 			transport = "tcp"
-		case "tuic":
-			transport = "tuic"
 		case "hysteria":
 			transport = "hysteria"
 		}
@@ -803,7 +555,6 @@ func buildOutboundStreamConfig(item panel.Outbound) (*coreConf.StreamConfig, err
 		}
 	case "hysteria":
 		stream.HysteriaSettings = &coreConf.HysteriaConfig{Version: 2, Auth: firstNonEmpty(item.Password, item.UUID)}
-	case "tuic":
 	default:
 		return nil, fmt.Errorf("unsupported outbound transport %q", item.Transport)
 	}

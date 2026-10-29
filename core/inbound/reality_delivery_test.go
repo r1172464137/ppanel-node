@@ -42,14 +42,14 @@ func TestRealityXverPanelDeliveryToBuiltConfig(t *testing.T) {
 				contentType := "application/json"
 				if format == "protobuf" {
 					contentType = "application/protobuf"
-					body, err = proto.Marshal(&serverv1.QueryServerProtocolConfigResponse{Code: 200, Data: &serverv1.QueryServerProtocolConfigData{Protocols: []*serverv1.ServerProtocol{{Type: "vless", Port: 20100, Enable: true, Transport: "tcp", Security: "reality", Sni: "example.com", RealityServerAddr: "127.0.0.1", RealityServerPort: 8443, RealityPrivateKey: privateKey, RealityShortId: "0123456789abcdef", RealityXver: uint32(xver), AcceptProxyProtocol: true}}}})
+					body, err = proto.Marshal(&serverv1.QueryServerProtocolConfigResponse{Code: 200, Data: &serverv1.QueryServerProtocolConfigData{Total: 1, Routing: &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1}, Protocols: []*serverv1.ServerProtocol{{Type: "vless", Port: 20100, Enable: true, Transport: "tcp", Security: "reality", Sni: "example.com", RealityServerAddr: "127.0.0.1", RealityServerPort: 8443, RealityPrivateKey: privateKey, RealityShortId: "0123456789abcdef", RealityXver: uint32(xver), AcceptProxyProtocol: true}}}})
 				} else {
 					// Zero is deliberately absent to cover old panel responses.
 					p := map[string]any{"type": "vless", "port": 20100, "enable": true, "transport": "tcp", "security": "reality", "sni": "example.com", "reality_server_addr": "127.0.0.1", "reality_server_port": 8443, "reality_private_key": privateKey, "reality_short_id": "0123456789abcdef", "accept_proxy_protocol": true}
 					if xver != 0 {
 						p["reality_xver"] = xver
 					}
-					body, err = json.Marshal(map[string]any{"code": 200, "data": map[string]any{"protocols": []any{p}}})
+					body, err = json.Marshal(map[string]any{"code": 200, "data": map[string]any{"protocols": []any{p}, "total": 1, "routing": map[string]any{"version": 1, "outbounds": []any{}, "rules": []any{}, "default_outbound_id": "direct", "mode": "ordered-v1-inherited", "source": "global", "source_revision": 1}}})
 				}
 				if err != nil {
 					t.Fatal(err)

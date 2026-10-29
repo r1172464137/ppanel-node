@@ -31,7 +31,7 @@ func TestUserSyncRevokesLastUserAndAllowsEmptyStartup(t *testing.T) {
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
 	protocols := []panel.Protocol{{Type: "vless", Enable: true, Port: port, Transport: "tcp"}}
-	config := &panel.ServerConfigResponse{Data: &panel.Data{Protocols: &protocols, PullInterval: 3600, PushInterval: 3600}}
+	config := &panel.ServerConfigResponse{Data: &panel.Data{Protocols: &protocols, Total: len(protocols), PullInterval: 3600, PushInterval: 3600, Routing: testNodeRouting()}}
 	cfg := conf.New()
 	cfg.ApiConfig.ApiHost = server.URL
 	xcore := core.New(cfg, panel.NewServerClient(&cfg.ApiConfig))

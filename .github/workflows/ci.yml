@@ -26,7 +26,7 @@ jobs:
       - name: Release helpers and workflow/action syntax tests
         run: bash scripts/test-release.sh
       - name: Focused route, wire and core race tests
-        run: go test -race -timeout 10m ./api/panel ./core/outbound ./core -count=1
+        run: go test -race -timeout 10m ./api/panel ./core/outbound ./core/inbound ./core/streamguard ./core/app/dispatcher ./core ./node ./cmd ./limiter ./common/task ./common/logx -count=1
       - name: Full node tests
         run: go test -timeout 10m ./... -count=1
       - name: Static production compile

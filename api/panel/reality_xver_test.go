@@ -16,7 +16,7 @@ func TestRealityXverJSONAndProtobufDelivery(t *testing.T) {
 		t.Fatalf("wire contract = %v", field)
 	}
 	for _, xver := range []uint32{0, 1, 2, 3, math.MaxUint32} {
-		message := &serverv1.QueryServerProtocolConfigResponse{Code: 200, Data: &serverv1.QueryServerProtocolConfigData{Protocols: []*serverv1.ServerProtocol{{Type: "vless", Security: "reality", RealityXver: xver, AcceptProxyProtocol: true}}}}
+		message := &serverv1.QueryServerProtocolConfigResponse{Code: 200, Data: &serverv1.QueryServerProtocolConfigData{Routing: &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1}, Protocols: []*serverv1.ServerProtocol{{Type: "vless", Security: "reality", RealityXver: xver, AcceptProxyProtocol: true}}}}
 		wire, err := proto.Marshal(message)
 		if err != nil {
 			t.Fatal(err)

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
+	"github.com/perfect-panel/ppanel-node/core/streamguard"
 	tuiccompat "github.com/perfect-panel/ppanel-node/core/transport/tuic"
 	"github.com/xtls/xray-core/app/proxyman"
 	"github.com/xtls/xray-core/common/net"
@@ -19,6 +20,26 @@ import (
 
 // Build builds Inbound config for different protocol.
 func Build(nodeInfo *panel.NodeInfo, tag string) (*core.InboundHandlerConfig, error) {
+	if nodeInfo == nil || nodeInfo.Protocol == nil {
+		return nil, fmt.Errorf("node protocol is nil")
+	}
+	if nodeInfo.Protocol.UoT || nodeInfo.Protocol.UoTVersion != 0 {
+		return nil, fmt.Errorf("configured UDP-over-TCP is unsupported")
+	}
+	if err := streamguard.ValidateNoUOTValue(nodeInfo.Protocol.PluginOptions); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(nodeInfo.Protocol.XHTTPExtra) != "" {
+		if err := streamguard.ValidateNoUOTJSON([]byte(nodeInfo.Protocol.XHTTPExtra)); err != nil {
+			return nil, err
+		}
+	}
+	if err := streamguard.ValidateURI("path", nodeInfo.Protocol.Path, false); err != nil {
+		return nil, err
+	}
+	if err := streamguard.ValidateURI("obfs_path", nodeInfo.Protocol.ObfsPath, false); err != nil {
+		return nil, err
+	}
 	in := &coreConf.InboundDetourConfig{}
 	var err error
 	switch nodeInfo.Type {
@@ -29,6 +50,9 @@ func Build(nodeInfo *panel.NodeInfo, tag string) (*core.InboundHandlerConfig, er
 	case "trojan":
 		err = buildTrojan(nodeInfo, in)
 	case "shadowsocks":
+		if err := panel.ValidateShadowsocksInboundPlugin(*nodeInfo.Protocol); err != nil {
+			return nil, err
+		}
 		err = buildShadowsocks(nodeInfo, in)
 	case "hysteria2", "hysteria":
 		err = buildHysteria2(nodeInfo, in)
@@ -98,6 +122,9 @@ func Build(nodeInfo *panel.NodeInfo, tag string) (*core.InboundHandlerConfig, er
 			MinClientVer: "0.0.0",
 			//Mldsa65Seed: v.RealityMldsa65Seed,
 		}
+	}
+	if err := streamguard.ValidateStream(in.StreamSetting, nil); err != nil {
+		return nil, fmt.Errorf("invalid inbound stream: %w", err)
 	}
 	in.Tag = tag
 	built, err := in.Build()

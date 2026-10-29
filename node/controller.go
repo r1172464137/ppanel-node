@@ -105,7 +105,10 @@ func (c *Controller) Start() error {
 		return fmt.Errorf("add users error: %s", err)
 	}
 	logx.Node(c.tag).WithField("user_added", added).Info("已添加新用户")
-	c.startTasks(c.info)
+	if err := c.startTasks(c.info); err != nil {
+		_ = c.Stop()
+		return err
+	}
 	return nil
 }
 

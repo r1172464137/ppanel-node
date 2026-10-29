@@ -35,6 +35,10 @@ func writeProtobuf(t *testing.T, writer http.ResponseWriter, message proto.Messa
 	_, _ = writer.Write(body)
 }
 
+func testPanelRouting() *RoutingPolicy {
+	return &RoutingPolicy{Version: 1, Outbounds: []Outbound{}, Rules: []RouteRule{}, DefaultOutboundID: "direct", RoutingIdentity: RoutingIdentity{Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1}}
+}
+
 func TestServerClientUsesProtobuf(t *testing.T) {
 	server := httptest.NewTestServer(t, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v2/server/7" {
@@ -43,19 +47,17 @@ func TestServerClientUsesProtobuf(t *testing.T) {
 		if got := request.Header.Get("Accept"); got != protobufContentType {
 			t.Fatalf("Accept = %q, want %q", got, protobufContentType)
 		}
+		if got := request.Header.Get(RoutingVersionHeader); got != "1" {
+			t.Fatalf("routing capability = %q", got)
+		}
 		writer.Header().Set("ETag", `"protobuf-config"`)
 		writeProtobuf(t, writer, &serverv1.QueryServerProtocolConfigResponse{
 			Code:    http.StatusOK,
 			Message: "success",
 			Data: &serverv1.QueryServerProtocolConfigData{
-				PushInterval:   60,
-				Block:          []string{"blocked.example"},
-				BlockIps:       []string{"geoip:private"},
-				BlockProtocols: []string{"bittorrent"},
-				Outbound: []*serverv1.Outbound{{
-					Name: "route", Protocol: "direct", Rules: []string{"routed.example"},
-					IpRules: []string{"geoip:cn"}, ProtocolRules: []string{"bittorrent"},
-				}},
+				PushInterval: 60,
+				Total:        1,
+				Routing:      &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1},
 				Protocols: []*serverv1.ServerProtocol{{
 					Type: "vless", Port: 443, Enable: true, Transport: "tcp",
 				}},
@@ -75,17 +77,15 @@ func TestServerClientUsesProtobuf(t *testing.T) {
 	if response.Data.PushInterval != 60 || len(*response.Data.Protocols) != 1 || (*response.Data.Protocols)[0].Port != 443 {
 		t.Fatalf("response data = %+v, want converted protobuf configuration", response.Data)
 	}
-	if !reflect.DeepEqual(*response.Data.Block, []string{"blocked.example"}) ||
-		!reflect.DeepEqual(*response.Data.BlockIPs, []string{"geoip:private"}) ||
-		!reflect.DeepEqual(*response.Data.BlockProtocols, []string{"bittorrent"}) {
-		t.Fatalf("protobuf block rule mapping = domain:%v IP:%v protocol:%v", *response.Data.Block, *response.Data.BlockIPs, *response.Data.BlockProtocols)
+	if response.Data.Routing == nil || response.Data.Routing.Version != 1 {
+		t.Fatal("ordered policy missing")
 	}
-	if got := (*response.Data.Outbound)[0]; !reflect.DeepEqual(got.Rules, []string{"routed.example"}) ||
-		!reflect.DeepEqual(got.IPRules, []string{"geoip:cn"}) || !reflect.DeepEqual(got.ProtocolRules, []string{"bittorrent"}) {
-		t.Fatalf("protobuf outbound rule mapping = %+v", got)
+	if client.ServerConfigEtag != "" {
+		t.Fatalf("observed ETag was committed before application: %q", client.ServerConfigEtag)
 	}
+	client.Commit(response)
 	if client.ServerConfigEtag != `"protobuf-config"` {
-		t.Fatalf("ETag = %q", client.ServerConfigEtag)
+		t.Fatalf("applied ETag = %q", client.ServerConfigEtag)
 	}
 	if !response.UseProtobuf || !client.UseProtobuf {
 		t.Fatalf("protobuf negotiation = response:%v client:%v, want true", response.UseProtobuf, client.UseProtobuf)
@@ -100,7 +100,7 @@ func TestServerClientFallsBackToJSON(t *testing.T) {
 		_ = json.NewEncoder(writer).Encode(&ServerConfigResponse{
 			Code: http.StatusOK,
 			Msg:  "success",
-			Data: &Data{Protocols: &[]Protocol{{Type: "vless", Port: 443, Enable: true, Transport: "tcp"}}},
+			Data: &Data{Protocols: &[]Protocol{{Type: "vless", Port: 443, Enable: true, Transport: "tcp"}}, Total: 1, Routing: testPanelRouting()},
 		})
 	}))
 	httpClient := server.Client()
@@ -187,8 +187,15 @@ func TestNodeClientUsesProtobuf(t *testing.T) {
 	if err := client.ReportUserTraffic(context.Background(), &[]UserTraffic{{UID: 1, Upload: 10, Download: 20}}); err != nil {
 		t.Fatalf("ReportUserTraffic() error = %v", err)
 	}
-	if err := client.ReportNodeStatus(&NodeStatus{CPU: 0.5, Mem: 0.6, Disk: 0.7}); err != nil {
-		t.Fatalf("ReportNodeStatus() error = %v", err)
+	statusClient := NewServerClient(&conf.ServerApiConfig{ApiHost: server.URL, ServerId: 7})
+	if err := statusClient.ActivateStatusPublisher(); err != nil {
+		t.Fatal(err)
+	}
+	if err := statusClient.BindNodeClient(client); err != nil {
+		t.Fatal(err)
+	}
+	if err := statusClient.ReportCertificateStatus(context.Background(), client, &NodeStatus{CPU: 0.5, Mem: 0.6, Disk: 0.7}); err != nil {
+		t.Fatalf("ReportCertificateStatus() error = %v", err)
 	}
 }
 

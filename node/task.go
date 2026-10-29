@@ -2,26 +2,32 @@ package node
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
 	"github.com/perfect-panel/ppanel-node/common/logx"
-	"github.com/perfect-panel/ppanel-node/common/serverstatus"
 	"github.com/perfect-panel/ppanel-node/common/task"
 	vCore "github.com/perfect-panel/ppanel-node/core"
 )
 
-func (c *Controller) startTasks(node *panel.NodeInfo) {
-	// fetch user list task
+func (c *Controller) startTasks(node *panel.NodeInfo) error {
+	interval, err := panel.IntervalDuration(node.PullInterval)
+	if err != nil {
+		return fmt.Errorf("user monitor interval: %w", err)
+	}
 	c.userListMonitorPeriodic = &task.Task{
 		Name:     "userListMonitor",
-		Interval: time.Duration(node.PullInterval) * time.Second,
+		Interval: interval,
 		Execute:  c.userListMonitor,
 		ReloadCh: c.server.ReloadCh,
 	}
-	_ = c.userListMonitorPeriodic.Start(false)
+	if err := c.userListMonitorPeriodic.Start(false); err != nil {
+		c.userListMonitorPeriodic = nil
+		return fmt.Errorf("start user monitor: %w", err)
+	}
 	logx.Node(c.tag).Info("用户列表监控任务已启动")
 	if usesTLSCertificate(node) {
 		switch node.Protocol.CertMode {
@@ -35,9 +41,15 @@ func (c *Controller) startTasks(node *panel.NodeInfo) {
 			}
 			logx.Node(c.tag).Info("证书定期更新任务已启动")
 			// delay to start renewCert
-			_ = c.renewCertPeriodic.Start(true)
+			if err := c.renewCertPeriodic.Start(true); err != nil {
+				c.userListMonitorPeriodic.Close()
+				c.userListMonitorPeriodic = nil
+				c.renewCertPeriodic = nil
+				return fmt.Errorf("start certificate renewal: %w", err)
+			}
 		}
 	}
+	return nil
 }
 
 func usesTLSCertificate(node *panel.NodeInfo) bool {
@@ -71,7 +83,7 @@ func (c *Controller) userListMonitor(ctx context.Context) (err error) {
 	}
 	// update alive list
 	if newA != nil {
-		c.limiter.AliveList = newA
+		c.limiter.SetAliveList(newA)
 	}
 	// update user list
 	// newU == nil indicates 304 Not Modified; empty slice means the list is empty
@@ -144,21 +156,6 @@ func (c *Controller) reportOnlineAndStatus(ctx context.Context, userTraffic []pa
 				"online_reported": len(result),
 			}).Info("已上报在线用户")
 		}
-	}
-
-	CPU, Mem, Disk, Uptime, err := serverstatus.GetSystemInfo()
-	if err != nil {
-		logx.Node(c.tag).WithError(err).Error("获取系统信息失败")
-	}
-	err = c.apiClient.ReportNodeStatusContext(ctx,
-		&panel.NodeStatus{
-			CPU:    CPU,
-			Mem:    Mem,
-			Disk:   Disk,
-			Uptime: Uptime,
-		})
-	if err != nil {
-		logx.Node(c.tag).WithError(err).Error("上报节点状态失败")
 	}
 
 	userTraffic = nil

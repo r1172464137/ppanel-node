@@ -41,6 +41,26 @@ message PushServerStatusRequest {
   double mem = 2;
   double disk = 3;
   int64 updated_at = 4;
+  uint32 routing_version = 5;
+  RoutingIdentity routing_applied = 6;
+  RoutingIdentity routing_pending = 7;
+  RoutingError routing_error = 8;
+  string instance_id = 9;
+  uint64 routing_sequence = 10;
+}
+
+message RoutingIdentity {
+  string mode = 1;
+  string source = 2;
+  int64 source_server_id = 3;
+  int64 source_revision = 4;
+  int64 local_transition_revision = 5;
+}
+
+message RoutingError {
+  RoutingIdentity identity = 1;
+  string stage = 2;
+  string message = 3;
 }
 
 // Result is the common error and no-data response envelope. Its fields match
@@ -140,6 +160,35 @@ message Outbound {
   repeated string rules = 41;
   repeated string ip_rules = 42;
   repeated string protocol_rules = 43;
+  string id = 44;
+}
+
+enum RouteKind {
+  ROUTE_KIND_UNSPECIFIED = 0;
+  ROUTE_KIND_DOMAIN = 1;
+  ROUTE_KIND_IP = 2;
+  ROUTE_KIND_PROTOCOL = 3;
+}
+
+message RouteRule {
+  string id = 1;
+  optional bool enabled = 2;
+  string remark = 3;
+  RouteKind kind = 4;
+  repeated string values = 5;
+  string outbound_id = 6;
+}
+
+message RoutingPolicy {
+  uint32 version = 1;
+  repeated Outbound outbounds = 2;
+  repeated RouteRule rules = 3;
+  string default_outbound_id = 4;
+  string mode = 5;
+  string source = 6;
+  int64 source_server_id = 7;
+  int64 source_revision = 8;
+  int64 local_transition_revision = 9;
 }
 
 // ServerProtocol is PPanel's normalized, flat protocol configuration. The
@@ -229,6 +278,7 @@ message QueryServerProtocolConfigData {
   int64 total = 9;
   repeated string block_ips = 10;
   repeated string block_protocols = 11;
+  RoutingPolicy routing = 12;
 }
 
 message QueryServerProtocolConfigResponse {

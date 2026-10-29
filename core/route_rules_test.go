@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -34,16 +35,21 @@ type socksRouteEvidence struct {
 }
 
 type controlledSOCKSServer struct {
-	tcp       net.Listener
-	udp       net.PacketConn
-	evidence  chan socksRouteEvidence
-	done      chan struct{}
-	closeOnce sync.Once
-	mu        sync.Mutex
-	conns     map[net.Conn]struct{}
+	tcp          net.Listener
+	udp          net.PacketConn
+	evidence     chan socksRouteEvidence
+	done         chan struct{}
+	closeOnce    sync.Once
+	mu           sync.Mutex
+	conns        map[net.Conn]struct{}
+	relayAddress string
 }
 
 func startControlledSOCKSServer(t *testing.T) *controlledSOCKSServer {
+	return startControlledSOCKSRelay(t, "")
+}
+
+func startControlledSOCKSRelay(t *testing.T, relayAddress string) *controlledSOCKSServer {
 	t.Helper()
 	tcpListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -57,7 +63,7 @@ func startControlledSOCKSServer(t *testing.T) *controlledSOCKSServer {
 	server := &controlledSOCKSServer{
 		tcp: tcpListener, udp: udpConn,
 		evidence: make(chan socksRouteEvidence, 32), done: make(chan struct{}),
-		conns: make(map[net.Conn]struct{}),
+		conns: make(map[net.Conn]struct{}), relayAddress: relayAddress,
 	}
 	go server.accept()
 	go server.serveUDP()
@@ -154,8 +160,18 @@ func (s *controlledSOCKSServer) serveTCP(conn net.Conn) {
 
 	switch request[1] {
 	case 1:
-		// The mock intentionally echoes without dialing the requested target. A
-		// successful echo therefore proves that Xray selected this SOCKS route.
+		if s.relayAddress != "" {
+			// A controlled local TLS destination, independent of external DNS.
+			upstream, err := net.DialTimeout("tcp", s.relayAddress, 3*time.Second)
+			if err != nil {
+				return
+			}
+			defer upstream.Close()
+			go func() { _, _ = io.Copy(upstream, conn) }()
+			_, _ = io.Copy(conn, upstream)
+			return
+		}
+		// The echo mode proves that Xray selected this SOCKS route.
 		_, _ = io.Copy(conn, conn)
 	case 3:
 		_, _ = io.Copy(io.Discard, conn)
@@ -270,13 +286,9 @@ func readPacketWithContext(ctx context.Context, conn net.PacketConn, buffer []by
 
 func TestStructuredRoutesUseControlledSOCKSForTCPAndUDP(t *testing.T) {
 	socks := startControlledSOCKSServer(t)
-	outbounds := []panel.Outbound{{
-		Name: "controlled-socks", Protocol: "socks", Address: "127.0.0.1", Port: socks.port(),
-		Rules: []string{"route.example"}, IPRules: []string{"127.0.0.1/32"},
-	}}
-	server, err := getCore(conf.New(), &panel.ServerConfigResponse{Data: &panel.Data{
-		Outbound: &outbounds, Protocols: &[]panel.Protocol{}, PullInterval: 3600,
-	}})
+	outbounds := []panel.Outbound{{ID: orderedSOCKSID, Name: "controlled-socks", Protocol: "socks", Address: "127.0.0.1", Port: socks.port()}}
+	rules := []panel.RouteRule{orderedRule(0, "domain", "route.example", orderedSOCKSID, true), orderedRule(1, "ip", "127.0.0.1/32", orderedSOCKSID, true)}
+	server, err := getCore(conf.New(), orderedConfig(rules, outbounds))
 	if err != nil {
 		t.Fatalf("build real Xray core: %v", err)
 	}
@@ -410,16 +422,11 @@ func dialTCPWithContext(ctx context.Context, address string) (net.Conn, error) {
 
 func TestBitTorrentAndUTPProtocolRulesUseControlledSOCKS(t *testing.T) {
 	socks := startControlledSOCKSServer(t)
-	outbounds := []panel.Outbound{{
-		Name: "bittorrent-socks", Protocol: "socks", Address: "127.0.0.1", Port: socks.port(),
-		ProtocolRules: []string{"bittorrent"},
-	}}
+	outbounds := []panel.Outbound{{ID: orderedSOCKSID, Name: "bittorrent-socks", Protocol: "socks", Address: "127.0.0.1", Port: socks.port()}}
 	config := conf.New()
 	config.LogConfig.Level = "error"
 	xcore := New(config, nil)
-	if err := xcore.Start(&panel.ServerConfigResponse{Data: &panel.Data{
-		Outbound: &outbounds, Protocols: &[]panel.Protocol{}, PullInterval: 3600,
-	}}); err != nil {
+	if err := xcore.Start(orderedConfig([]panel.RouteRule{orderedRule(0, "protocol", "bittorrent", orderedSOCKSID, true)}, outbounds)); err != nil {
 		t.Fatalf("start Xray with BitTorrent protocol route: %v", err)
 	}
 	t.Cleanup(func() { _ = xcore.Close() })
@@ -510,10 +517,16 @@ func TestProductionGeositeAndGeoIPRouteDecisionsOnRealCore(t *testing.T) {
 	if assetDir == "" {
 		assetDir = filepath.Join("..", "output", "release-geodata")
 	}
-	for _, name := range []string{"geosite.dat", "geoip.dat"} {
-		info, err := os.Stat(filepath.Join(assetDir, name))
-		if err != nil || info.Size() == 0 {
-			t.Skipf("production geodata unavailable at %s (set PPNODE_TEST_GEODATA): %v", assetDir, err)
+	for name, expected := range map[string]string{
+		"geosite.dat": "e16ee9af893247f9c8b15c5259e5c0a6ae491b85ee351c22f1954e696ebb8997",
+		"geoip.dat":   "a6271d3c96361d96156e6d3f7cf1550ef21b00d2f951deb772f464db91e89ac5",
+	} {
+		data, err := os.ReadFile(filepath.Join(assetDir, name))
+		if err != nil {
+			t.Fatalf("required production geodata unavailable at %s (set PPNODE_TEST_GEODATA): %v", assetDir, err)
+		}
+		if got := fmt.Sprintf("%x", sha256.Sum256(data)); got != expected {
+			t.Fatalf("%s digest = %s, want %s", name, got, expected)
 		}
 	}
 
@@ -574,16 +587,9 @@ func runProductionGeodataRouteDecisions(t *testing.T) {
 			t.Fatalf("%s resolved to %s instead of executable directory %s", name, resolved, filepath.Dir(executable))
 		}
 	}
-	blockDomains := []string{"geosite:category-pt"}
-	blockIPs := []string{"geoip:private", "10.0.0.0/8", "fc00::/7"}
-	blockProtocols := []string{"bittorrent"}
-	outbounds := []panel.Outbound{{
-		Name: "cn-direct", Protocol: "direct", Rules: []string{"geosite:cn"}, IPRules: []string{"geoip:cn"},
-	}}
-	server, err := getCore(conf.New(), &panel.ServerConfigResponse{Data: &panel.Data{
-		Block: &blockDomains, BlockIPs: &blockIPs, BlockProtocols: &blockProtocols,
-		Outbound: &outbounds, Protocols: &[]panel.Protocol{}, PullInterval: 3600,
-	}})
+	outbounds := []panel.Outbound{{ID: orderedSOCKSID, Name: "cn-direct", Protocol: "direct"}}
+	rules := []panel.RouteRule{orderedRule(0, "protocol", "bittorrent", "block", true), orderedRule(1, "ip", "geoip:private", "block", true), orderedRule(2, "domain", "geosite:category-pt", "block", true), orderedRule(3, "domain", "geosite:cn", orderedSOCKSID, true), orderedRule(4, "ip", "geoip:cn", orderedSOCKSID, true)}
+	server, err := getCore(conf.New(), orderedConfig(rules, outbounds))
 	if err != nil {
 		t.Fatalf("build Xray with production geosite/geoip data: %v", err)
 	}
@@ -606,10 +612,11 @@ func runProductionGeodataRouteDecisions(t *testing.T) {
 	}
 	assertRoute("category-pt geosite", xnet.TCPDestination(xnet.DomainAddress("hdchina.org"), 443), "block")
 	assertRoute("private geoip", xnet.TCPDestination(xnet.ParseAddress("10.23.45.67"), 443), "block")
-	assertRoute("CN geosite", xnet.TCPDestination(xnet.DomainAddress("www.baidu.com"), 443), "cn-direct")
-	assertRoute("CN geoip", xnet.TCPDestination(xnet.ParseAddress("223.5.5.5"), 53), "cn-direct")
+	assertRoute("CN geosite", xnet.TCPDestination(xnet.DomainAddress("www.baidu.com"), 443), "routing_"+orderedSOCKSID)
+	assertRoute("CN geoip", xnet.TCPDestination(xnet.ParseAddress("223.5.5.5"), 53), "routing_"+orderedSOCKSID)
 
 	if err := server.Close(); err != nil {
 		t.Fatalf("close Xray: %v", err)
 	}
+	runOrderedProductionGeodata(t)
 }
