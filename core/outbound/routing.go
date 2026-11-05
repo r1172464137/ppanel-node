@@ -10,6 +10,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
+	"github.com/perfect-panel/ppanel-node/common/format"
+	"github.com/xtls/xray-core/app/router"
 	"github.com/xtls/xray-core/core"
 	coreConf "github.com/xtls/xray-core/infra/conf"
 )
@@ -41,8 +43,24 @@ func ValidateOrdered(data *panel.Data) error {
 	if p == nil {
 		return fmt.Errorf("routing policy is null or missing")
 	}
+	if p.Version == 2 {
+		return validateOrderedV2(data)
+	}
 	if p.Version != 1 {
 		return fmt.Errorf("unsupported routing version %d", p.Version)
+	}
+	if p.DNSPolicy != nil || len(p.UserDefaults) != 0 || data.IdentitySnapshot != nil {
+		return fmt.Errorf("version 1 contains version 2 fields")
+	}
+	for _, out := range p.Outbounds {
+		if out.ViaOutboundID != "" {
+			return fmt.Errorf("version 1 contains chain")
+		}
+	}
+	for _, rule := range p.Rules {
+		if len(rule.UserIDs) != 0 {
+			return fmt.Errorf("version 1 contains users")
+		}
 	}
 	if data.LegacyRoutingPresent || sliceLen(data.Block) != 0 || sliceLen(data.BlockIPs) != 0 || sliceLen(data.BlockProtocols) != 0 || outboundLen(data.Outbound) != 0 {
 		return fmt.Errorf("ordered routing mixed with legacy routing")
@@ -216,6 +234,26 @@ func orderedValues(r panel.RouteRule) ([]string, error) {
 	}
 }
 
+func expandedUsers(data *panel.Data, accountIDs []int64) []string {
+	if data.IdentitySnapshot == nil {
+		return nil
+	}
+	wanted := make(map[int64]bool, len(accountIDs))
+	for _, id := range accountIDs {
+		wanted[id] = true
+	}
+	var result []string
+	for _, p := range data.IdentitySnapshot.Protocols {
+		tag := panel.InboundTag(data.DeliveryAPIHost, p.Protocol, data.DeliveryServerID)
+		for _, user := range p.Users {
+			if wanted[user.AccountID] {
+				result = append(result, format.UserTag(tag, user.Uuid))
+			}
+		}
+	}
+	return result
+}
+
 func buildOrdered(config *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult, error) {
 	if err := ValidateOrdered(config.Data); err != nil {
 		return nil, err
@@ -247,6 +285,38 @@ func buildOrdered(config *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResul
 		stream, err := buildOutboundStreamConfig(item)
 		if err != nil {
 			return nil, fmt.Errorf("outbound %q: %w", item.ID, err)
+		}
+		if p.DNSPolicy != nil {
+			if stream == nil {
+				stream = &coreConf.StreamConfig{}
+			}
+			if stream.SocketSettings == nil {
+				stream.SocketSettings = &coreConf.SocketConfig{}
+			}
+			// Explicit DNS also resolves proxy-server hostnames through the
+			// selected policy; never fall back to the operating-system resolver.
+			socket := stream.SocketSettings
+			if socket.AddressPortStrategy != "" && !strings.EqualFold(socket.AddressPortStrategy, "none") {
+				return nil, fmt.Errorf("outbound %q addressPortStrategy bypasses explicit DNS", item.ID)
+			}
+			switch strategy := strings.ToLower(socket.DomainStrategy); {
+			case strategy == "" || strategy == "asis":
+				socket.DomainStrategy = "ForceIP"
+			case strings.HasPrefix(strategy, "use"):
+				socket.DomainStrategy = "force" + strategy[3:]
+			}
+		}
+		if item.ViaOutboundID != "" {
+			if stream == nil {
+				stream = &coreConf.StreamConfig{}
+			}
+			if stream.SocketSettings == nil {
+				stream.SocketSettings = &coreConf.SocketConfig{}
+			}
+			if stream.SocketSettings.DialerProxy != "" {
+				return nil, fmt.Errorf("outbound %q raw dialerProxy conflicts with via", item.ID)
+			}
+			stream.SocketSettings.DialerProxy = "routing_" + item.ViaOutboundID
 		}
 		if strings.TrimSpace(item.StreamSettings) == "" {
 			if len(item.ALPN) != 0 {
@@ -299,7 +369,17 @@ func buildOrdered(config *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResul
 			return nil, err
 		} // already validated, including disabled
 		if *rule.Enabled {
-			if err := appendRouteRule(routes, rule.Kind, values, tags[rule.OutboundID], rule.ID); err != nil {
+			if len(rule.UserIDs) > 0 {
+				users := expandedUsers(config.Data, rule.UserIDs)
+				if len(users) == 0 {
+					continue
+				}
+				raw, err := json.Marshal(map[string]any{rule.Kind: values, "user": users, "outboundTag": tags[rule.OutboundID], "ruleTag": rule.ID})
+				if err != nil {
+					return nil, err
+				}
+				routes.RuleList = append(routes.RuleList, raw)
+			} else if err := appendRouteRule(routes, rule.Kind, values, tags[rule.OutboundID], rule.ID); err != nil {
 				return nil, err
 			}
 		}
@@ -309,5 +389,8 @@ func buildOrdered(config *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResul
 		return nil, fmt.Errorf("build ordered router: %w", err)
 	}
 	base.Router.Rule = append(base.Router.Rule, compiled.Rule...)
+	if p.Version == 2 {
+		base.Router.DomainStrategy = router.Config_IpIfNonMatch
+	}
 	return base, nil
 }

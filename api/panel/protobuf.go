@@ -150,6 +150,25 @@ func serverConfigResponseFromProtobuf(message *serverv1.QueryServerProtocolConfi
 		Protocols:              &protocols,
 		Total:                  int(message.Data.Total),
 	}
+	if s := message.Data.IdentitySnapshot; s != nil {
+		snapshot := &IdentitySnapshot{SnapshotID: s.SnapshotId, Protocols: make([]ProtocolUserSnapshot, 0, len(s.Protocols))}
+		for _, p := range s.Protocols {
+			if p == nil {
+				snapshot.Protocols = append(snapshot.Protocols, ProtocolUserSnapshot{})
+				continue
+			}
+			entry := ProtocolUserSnapshot{Protocol: p.Protocol, Users: make([]UserInfo, 0, len(p.Users))}
+			for _, u := range p.Users {
+				if u == nil {
+					entry.Users = append(entry.Users, UserInfo{})
+					continue
+				}
+				entry.Users = append(entry.Users, UserInfo{Id: int(u.Id), Uuid: u.Uuid, SpeedLimit: int(u.SpeedLimit), DeviceLimit: int(u.DeviceLimit), AccountID: u.AccountId})
+			}
+			snapshot.Protocols = append(snapshot.Protocols, entry)
+		}
+		response.Data.IdentitySnapshot = snapshot
+	}
 	if p := message.Data.Routing; p != nil {
 		policy := &RoutingPolicy{
 			Version: int(p.Version), DefaultOutboundID: p.DefaultOutboundId,
@@ -179,7 +198,27 @@ func serverConfigResponseFromProtobuf(message *serverv1.QueryServerProtocolConfi
 				kind = "protocol"
 			}
 			policy.Rules = append(policy.Rules, RouteRule{ID: item.Id, Enabled: item.Enabled, Remark: item.Remark,
-				Kind: kind, Values: append([]string(nil), item.Values...), OutboundID: item.OutboundId})
+				Kind: kind, Values: append([]string(nil), item.Values...), OutboundID: item.OutboundId, UserIDs: append([]int64(nil), item.UserIds...)})
+		}
+		if p.Version == 2 {
+			policy.UserDefaults = make([]UserDefault, 0, len(p.UserDefaults))
+			for _, d := range p.UserDefaults {
+				if d == nil {
+					policy.UserDefaults = append(policy.UserDefaults, UserDefault{})
+					continue
+				}
+				policy.UserDefaults = append(policy.UserDefaults, UserDefault{UserID: d.UserId, OutboundID: d.OutboundId})
+			}
+		}
+		if p.DnsPolicy != nil {
+			policy.DNSPolicy = &DNSPolicy{QueryStrategy: p.DnsPolicy.QueryStrategy, Resolvers: make([]PolicyDNSResolver, 0, len(p.DnsPolicy.Resolvers))}
+			for _, r := range p.DnsPolicy.Resolvers {
+				if r == nil {
+					policy.DNSPolicy.Resolvers = append(policy.DNSPolicy.Resolvers, PolicyDNSResolver{})
+					continue
+				}
+				policy.DNSPolicy.Resolvers = append(policy.DNSPolicy.Resolvers, PolicyDNSResolver{ID: r.Id, Protocol: r.Protocol, Address: r.Address, BootstrapIP: r.BootstrapIp, Domains: append([]string{}, r.Domains...), OutboundID: r.OutboundId})
+			}
 		}
 		response.Data.Routing = policy
 		response.Data.RoutingPresent = true
@@ -204,7 +243,7 @@ func jsonValueFromProtobuf(value *structpb.Value) any {
 
 func outboundFromProtobuf(item *serverv1.Outbound) Outbound {
 	return Outbound{
-		ID: item.Id, Name: item.Name, Protocol: item.Protocol, Address: item.Address, Port: int(item.Port),
+		ID: item.Id, ViaOutboundID: item.ViaOutboundId, Name: item.Name, Protocol: item.Protocol, Address: item.Address, Port: int(item.Port),
 		User: item.User, Password: item.Password, UUID: item.Uuid, Cipher: item.Cipher,
 		Plugin: item.Plugin, PluginOptions: jsonValueFromProtobuf(item.PluginOptions), ALPN: append([]string(nil), item.Alpn...),
 		Security: item.Security, SNI: item.Sni, AllowInsecure: item.AllowInsecure,

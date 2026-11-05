@@ -73,8 +73,14 @@ func buildBase(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildRe
 		QueryStrategy: queryStrategy,
 	}
 
-	//custom dns
-	if dnsConfig != nil {
+	var dnsRoutes []json.RawMessage
+	if serverconfig.Data.Routing != nil && serverconfig.Data.Routing.DNSPolicy != nil {
+		var err error
+		coreDnsConfig, dnsRoutes, err = buildPolicyDNS(serverconfig.Data.Routing)
+		if err != nil {
+			return nil, fmt.Errorf("build DNS policy: %w", err)
+		}
+	} else if dnsConfig != nil {
 		for i, item := range *dnsConfig {
 			server, err := buildDNSResolver(item, ipStrategy)
 			if err != nil {
@@ -85,7 +91,11 @@ func buildBase(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildRe
 	}
 
 	// Built-in outbounds retain the existing Freedom safety settings.
-	defaultoutbound, err := buildDefaultOutbound()
+	strategy := "UseIPv4v6"
+	if serverconfig.Data.Routing != nil && serverconfig.Data.Routing.DNSPolicy != nil {
+		strategy = "ForceIPv4v6"
+	}
+	defaultoutbound, err := buildDirectOutbound(strategy)
 	if err != nil {
 		return nil, fmt.Errorf("build direct: %w", err)
 	}
@@ -107,7 +117,7 @@ func buildBase(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildRe
 		"outboundTag": DNSTag,
 	})
 	coreRouterConfig := &coreConf.RouterConfig{
-		RuleList:       []json.RawMessage{dnsRule},
+		RuleList:       append(dnsRoutes, dnsRule),
 		DomainStrategy: &domainStrategy,
 	}
 

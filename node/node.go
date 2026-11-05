@@ -81,6 +81,23 @@ func New(core *vCore.XrayCore, config *conf.Conf, serverconfig *panel.ServerConf
 			}
 		}
 		controller := NewController(core, p, n)
+		if serverconfig.Data.Routing != nil && serverconfig.Data.Routing.Version == 2 {
+			if serverconfig.Data.IdentitySnapshot == nil {
+				return nil, fmt.Errorf("missing v2 identity snapshot")
+			}
+			found := false
+			for _, snapshot := range serverconfig.Data.IdentitySnapshot.Protocols {
+				if snapshot.Protocol == nodeconfig.Type {
+					users := append([]panel.UserInfo{}, snapshot.Users...)
+					controller.identitySnapshot = &users
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("missing identity snapshot for %s", nodeconfig.Type)
+			}
+		}
 		controller.traffic = node.traffic
 		node.controllers = append(node.controllers, controller)
 	}
@@ -144,7 +161,7 @@ func (n *Node) Start() error {
 func (n *Node) report(ctx context.Context) error {
 	snapshots := make(map[*Controller][]panel.UserTraffic)
 	for _, c := range n.controllers {
-		if c.started {
+		if c.started.Load() {
 			snapshots[c] = c.collectTraffic(max(c.info.TrafficReportThreshold, 0))
 		}
 	}
@@ -154,7 +171,7 @@ func (n *Node) report(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return errors.Join(result, ctx.Err())
 		}
-		if c.started {
+		if c.started.Load() {
 			_ = c.reportOnlineAndStatus(ctx, snapshots[c])
 		}
 	}
@@ -163,7 +180,7 @@ func (n *Node) report(ctx context.Context) error {
 	if n.statusClient != nil && ctx.Err() == nil {
 		var status *panel.NodeStatus
 		for _, c := range n.controllers {
-			if c != nil && c.started && c.info.Protocol != nil && strings.TrimSpace(c.info.Protocol.CertMode) == "self" {
+			if c != nil && c.started.Load() && c.info.Protocol != nil && strings.TrimSpace(c.info.Protocol.CertMode) == "self" {
 				if status == nil {
 					cpu, mem, disk, uptime, err := serverstatus.GetSystemInfo()
 					if err != nil {
@@ -209,6 +226,18 @@ func (n *Node) Close() {
 		}
 	}
 	n.controllers = nil
+}
+
+// CollectTraffic drains the final bytes after the retired dispatcher has stopped.
+func (n *Node) CollectTraffic() {
+	if n == nil {
+		return
+	}
+	for _, c := range n.controllers {
+		if c != nil {
+			c.collectTraffic(0)
+		}
+	}
 }
 
 // FlushTraffic attempts final delivery after Stop has collected the last batch.

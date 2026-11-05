@@ -16,16 +16,17 @@ import (
 const CertificateSHA256Header = "X-Node-Certificate-SHA256"
 
 type NodeClient struct {
-	Client      *resty.Client
-	APIHost     string
-	SecretKey   string
-	NodeType    string
-	NodeId      int
-	UseProtobuf bool
-	userEtag    string
-	UserList    *UserListBody
-	AliveMap    *AliveMap
-	publication *publicationLease
+	Client          *resty.Client
+	APIHost         string
+	SecretKey       string
+	NodeType        string
+	NodeId          int
+	UseProtobuf     bool
+	userEtag        string
+	pendingUserEtag string
+	UserList        *UserListBody
+	AliveMap        *AliveMap
+	publication     *publicationLease
 }
 
 type ServerClient struct {

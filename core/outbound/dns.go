@@ -183,6 +183,9 @@ func ValidateDNS(data *panel.Data) error {
 	if data == nil {
 		return fmt.Errorf("server configuration data is empty")
 	}
+	if data.Routing != nil && data.Routing.DNSPolicy != nil {
+		return validateDNSPolicy(data.Routing)
+	}
 	if data.DNS == nil {
 		return nil
 	}

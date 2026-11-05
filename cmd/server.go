@@ -215,16 +215,12 @@ func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *
 	newCore := core.New(newConf, p)
 	// Reattach reload channel
 	newCore.ReloadCh = oldReloadCh
-	if err := newCore.StartPrepared(serverconfig); err != nil {
-		stage := panel.StageBuild
-		if strings.HasPrefix(err.Error(), "start core:") {
-			stage = panel.StageCoreStart
-		}
-		p.RecordFailure(serverconfig, stage)
+	if err := newCore.Prepare(serverconfig); err != nil {
+		p.RecordFailure(serverconfig, panel.StageBuild)
 		_ = newCore.Close()
-		return logHandle, fmt.Errorf("%s candidate: %w", stage, err)
+		return logHandle, fmt.Errorf("build candidate: %w", err)
 	}
-	logx.Component("server").Info("新Xray核心启动成功")
+	logx.Component("server").Info("新Xray配置编译成功")
 	newNodes, err := node.New(newCore, newConf, serverconfig)
 	if err != nil {
 		p.RecordFailure(serverconfig, panel.StagePrepare)
@@ -247,7 +243,12 @@ func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *
 		cleanup := func() { newNodes.Close(); _ = newCore.Close() }
 		var restart func() error
 		if oldNodes != nil && oldCore != nil {
-			restart = oldNodes.Start
+			restart = func() error {
+				if err := oldCore.RestoreDialer(); err != nil {
+					return err
+				}
+				return oldNodes.Start()
+			}
 		}
 		restored, err := restorePrevious(stage, cause, cleanup, restart)
 		if !restored {
@@ -266,6 +267,19 @@ func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *
 		if err := oldNodes.Stop(); err != nil {
 			return restore("stop", err)
 		}
+	}
+	if oldCore != nil {
+		oldCore.Quiesce()
+		if oldNodes != nil {
+			oldNodes.CollectTraffic()
+		}
+	}
+	if err := newCore.StartPrepared(serverconfig); err != nil {
+		stage := "build"
+		if strings.HasPrefix(err.Error(), "start core:") {
+			stage = "core_start"
+		}
+		return restore(stage, err)
 	}
 	if err := newNodes.Start(); err != nil {
 		return restore("bind", err)

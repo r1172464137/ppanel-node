@@ -153,7 +153,7 @@ func TestCandidateETagCommitRetryAndReplacement(t *testing.T) {
 	var mu sync.Mutex
 	revision := 1
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get(RoutingVersionHeader) != "1" {
+		if r.Header.Get(RoutingVersionHeader) != SupportedRoutingVersion {
 			t.Errorf("missing routing capability header")
 		}
 		mu.Lock()

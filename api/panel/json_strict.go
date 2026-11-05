@@ -128,8 +128,8 @@ func typeJSONNames(t reflect.Type) map[string]bool {
 	return m
 }
 
-var dataJSONNames = names("traffic_report_threshold", "push_interval", "pull_interval", "ip_strategy", "dns", "block", "block_ips", "block_protocols", "outbound", "protocols", "total", "routing")
-var policyJSONNames = names("version", "outbounds", "rules", "default_outbound_id", "mode", "source", "source_server_id", "source_revision", "local_transition_revision")
+var dataJSONNames = names("traffic_report_threshold", "push_interval", "pull_interval", "ip_strategy", "dns", "block", "block_ips", "block_protocols", "outbound", "protocols", "total", "routing", "identity_snapshot")
+var policyJSONNames = names("version", "outbounds", "rules", "default_outbound_id", "mode", "source", "source_server_id", "source_revision", "local_transition_revision", "user_defaults", "dns_policy")
 var outboundJSONNames = typeJSONNames(reflect.TypeOf(Outbound{}))
 var ruleJSONNames = typeJSONNames(reflect.TypeOf(RouteRule{}))
 var dnsJSONNames = typeJSONNames(reflect.TypeOf(DNSItem{}))
@@ -167,12 +167,74 @@ func validatePolicyJSON(raw []byte) error {
 	for _, entry := range []struct {
 		name    string
 		allowed map[string]bool
-	}{{"outbounds", outboundJSONNames}, {"rules", ruleJSONNames}} {
+	}{{"outbounds", outboundJSONNames}, {"rules", ruleJSONNames}, {"user_defaults", typeJSONNames(reflect.TypeOf(UserDefault{}))}} {
 		data, ok := fields[entry.name]
 		if !ok || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
 			continue
 		}
 		if err := validateArrayObjects(data, entry.allowed, "routing "+entry.name); err != nil {
+			return err
+		}
+	}
+	var version int
+	_ = json.Unmarshal(fields["version"], &version)
+	if version == 1 {
+		if _, ok := fields["user_defaults"]; ok {
+			return fmt.Errorf("v1 cannot contain user_defaults")
+		}
+		if _, ok := fields["dns_policy"]; ok {
+			return fmt.Errorf("v1 cannot contain dns_policy")
+		}
+		for _, part := range []struct{ name, field string }{{"outbounds", "via_outbound_id"}, {"rules", "user_ids"}} {
+			var list []map[string]json.RawMessage
+			_ = json.Unmarshal(fields[part.name], &list)
+			for _, item := range list {
+				if _, ok := item[part.field]; ok {
+					return fmt.Errorf("v1 cannot contain %s", part.field)
+				}
+			}
+		}
+	}
+	if raw, ok := fields["rules"]; ok {
+		var list []map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &list); err != nil {
+			return err
+		}
+		for _, rule := range list {
+			if ids, ok := rule["user_ids"]; ok && bytes.Equal(bytes.TrimSpace(ids), []byte("null")) {
+				return fmt.Errorf("user_ids must not be null")
+			}
+		}
+	}
+	if raw, ok := fields["dns_policy"]; ok {
+		policy, err := exactObject(raw, typeJSONNames(reflect.TypeOf(DNSPolicy{})))
+		if err != nil {
+			return err
+		}
+		if resolvers, ok := policy["resolvers"]; ok {
+			if err := validateArrayObjects(resolvers, typeJSONNames(reflect.TypeOf(PolicyDNSResolver{})), "dns_policy.resolvers"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateSnapshotJSON(raw []byte) error {
+	fields, err := exactObject(raw, typeJSONNames(reflect.TypeOf(IdentitySnapshot{})))
+	if err != nil {
+		return err
+	}
+	var protocols []json.RawMessage
+	if err := json.Unmarshal(fields["protocols"], &protocols); err != nil {
+		return err
+	}
+	for _, raw := range protocols {
+		p, err := exactObject(raw, typeJSONNames(reflect.TypeOf(ProtocolUserSnapshot{})))
+		if err != nil {
+			return err
+		}
+		if err := validateArrayObjects(p["users"], typeJSONNames(reflect.TypeOf(UserInfo{})), "identity_snapshot.users"); err != nil {
 			return err
 		}
 	}

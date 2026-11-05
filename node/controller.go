@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
 	"github.com/perfect-panel/ppanel-node/common/logx"
@@ -20,14 +21,16 @@ type Controller struct {
 	tag                     string
 	limiter                 *limiter.Limiter
 	userList                []panel.UserInfo
+	identitySnapshot        *[]panel.UserInfo
 	aliveMap                map[int]int
 	info                    *panel.NodeInfo
 	userListMonitorPeriodic *task.Task
 	renewCertPeriodic       *task.Task
 	traffic                 *trafficQueue
 	prepared                bool
-	started                 bool
+	started                 atomic.Bool
 	inboundConfig           *xray.InboundHandlerConfig
+	removeInbound           func(string) error // optional failure injection; nil uses the core
 }
 
 // NewController return a Node controller with default parameters.
@@ -59,10 +62,14 @@ func (c *Controller) Prepare() error {
 		}
 	}
 
-	// Update user
-	c.userList, err = c.apiClient.GetUserList(context.Background())
-	if err != nil {
-		return fmt.Errorf("get user list error: %s", err)
+	// Version 2 uses the immutable identities paired with the routing candidate.
+	if c.identitySnapshot != nil {
+		c.userList = append([]panel.UserInfo{}, (*c.identitySnapshot)...)
+	} else {
+		c.userList, err = c.apiClient.GetUserList(context.Background())
+		if err != nil {
+			return fmt.Errorf("get user list error: %s", err)
+		}
 	}
 	c.aliveMap, err = c.apiClient.GetUserAlive()
 	if err != nil {
@@ -83,7 +90,10 @@ func (c *Controller) Prepare() error {
 }
 
 func (c *Controller) Start() error {
-	if c.started {
+	if c.server.FailedClosed() {
+		return fmt.Errorf("core was shut down after user restore failure")
+	}
+	if c.started.Load() {
 		return nil
 	}
 	if err := c.Prepare(); err != nil {
@@ -95,7 +105,7 @@ func (c *Controller) Start() error {
 	if err := c.server.AddNodeConfig(c.inboundConfig); err != nil {
 		return err
 	}
-	c.started = true
+	c.started.Store(true)
 	added, err := c.server.AddUsers(&vCore.AddUsersParams{
 		Tag:      c.tag,
 		Users:    c.userList,
@@ -108,6 +118,9 @@ func (c *Controller) Start() error {
 	if err := c.startTasks(c.info); err != nil {
 		_ = c.Stop()
 		return err
+	}
+	if c.identitySnapshot == nil {
+		c.apiClient.CommitUserList()
 	}
 	return nil
 }
@@ -126,13 +139,18 @@ func (c *Controller) Stop() error {
 		c.renewCertPeriodic.Close()
 		c.renewCertPeriodic = nil
 	}
-	if !c.started {
+	if !c.started.Load() {
+		return nil
+	}
+	if c.server.FailedClosed() {
+		c.started.Store(false)
+		c.collectTraffic(0)
 		return nil
 	}
 	if err := c.server.DelNode(c.tag); err != nil {
 		return err
 	}
-	c.started = false
+	c.started.Store(false)
 	c.collectTraffic(0)
 	return nil
 }
@@ -149,5 +167,5 @@ func (c *Controller) Close() error {
 }
 
 func (c *Controller) buildNodeTag(node *panel.NodeInfo) string {
-	return fmt.Sprintf("[%s]-%s:%d", c.apiClient.APIHost, node.Type, node.Id)
+	return panel.InboundTag(c.apiClient.APIHost, node.Type, node.Id)
 }

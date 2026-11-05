@@ -4,6 +4,7 @@ package dispatcher
 
 import (
 	"context"
+	stderrors "errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,7 +45,9 @@ type cachedReader struct {
 func (r *cachedReader) Cache(b *buf.Buffer, deadline time.Duration) error {
 	mb, err := r.reader.ReadMultiBufferTimeout(deadline)
 	r.Lock()
-	if err != nil {
+	// A sniffing deadline is not the end of the proxy stream. Preserve real
+	// terminal errors (including EOF with payload), but let timed-out reads retry.
+	if err != nil && !stderrors.Is(err, buf.ErrReadTimeout) {
 		r.err = err
 	}
 	if !mb.IsEmpty() {
@@ -95,22 +98,30 @@ func (r *cachedReader) Interrupt() {
 		r.cache = buf.ReleaseMulti(r.cache)
 	}
 	r.Unlock()
-	if p, ok := r.reader.(*pipe.Reader); ok {
-		p.Interrupt()
-	}
+	_ = common.Interrupt(r.reader)
 }
 
 // DefaultDispatcher is a default implementation of Dispatcher.
 type DefaultDispatcher struct {
-	ohm            outbound.Manager
-	router         routing.Router
-	policy         policy.Manager
-	stats          stats.Manager
-	fdns           dns.FakeDNSEngine
-	Counter        sync.Map
-	LinkManagers   sync.Map // map[string]*LinkManager
-	LimiterManager *limiter.Manager
-	routeEventSink atomic.Pointer[routeEventSink]
+	ohm              outbound.Manager
+	router           routing.Router
+	policy           policy.Manager
+	stats            stats.Manager
+	fdns             dns.FakeDNSEngine
+	dnsClient        dns.Client
+	dnsTargets       map[string]DNSRouteTarget
+	blockedOutbounds map[string]bool
+	guardIPRules     bool
+	dispatchMu       sync.Mutex
+	dispatches       sync.WaitGroup
+	activeDispatches map[uint64]activeDispatch
+	nextDispatch     uint64
+	paused           bool
+	userFallback     map[string]string
+	Counter          sync.Map
+	LinkManagers     sync.Map // map[string]*LinkManager
+	LimiterManager   *limiter.Manager
+	routeEventSink   atomic.Pointer[routeEventSink]
 }
 
 // RouteEvent is an opt-in, nonblocking observation of the actual dispatch
@@ -152,6 +163,7 @@ func init() {
 			core.OptionalFeatures(ctx, func(fdns dns.FakeDNSEngine) {
 				d.fdns = fdns
 			})
+			d.dnsClient = dc
 			return d.Init(config.(*Config), om, router, pm, sm)
 		}); err != nil {
 			return nil, err
@@ -169,6 +181,16 @@ func (d *DefaultDispatcher) Init(config *Config, om outbound.Manager, router rou
 	return nil
 }
 
+// SetUserFallback is called before listener activation on the prepared core.
+func (d *DefaultDispatcher) SetUserFallback(users map[string]string) { d.userFallback = users }
+
+type resolvedRoutingContext struct {
+	routing.Context
+	ips []net.IP
+}
+
+func (c resolvedRoutingContext) GetTargetIPs() []net.IP { return c.ips }
+
 // Type implements common.HasType.
 func (*DefaultDispatcher) Type() interface{} {
 	return routing.DispatcherType()
@@ -180,7 +202,7 @@ func (*DefaultDispatcher) Start() error {
 }
 
 // Close implements common.Closable.
-func (*DefaultDispatcher) Close() error { return nil }
+func (d *DefaultDispatcher) Close() error { d.Quiesce(); return nil }
 
 func (d *DefaultDispatcher) getLink(ctx context.Context, network net.Network) (*transport.Link, *transport.Link, *limiter.Limiter, error) {
 	opt := pipe.OptionsFromContext(ctx)
@@ -518,6 +540,13 @@ func sniffer(ctx context.Context, cReader *cachedReader, metadataOnly bool, netw
 }
 
 func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.Link, destination net.Destination, l *limiter.Limiter, protocol string) {
+	ctx, done, active := d.beginDispatch(ctx, link)
+	if !active {
+		common.Close(link.Writer)
+		common.Interrupt(link.Reader)
+		return
+	}
+	defer done()
 	outbounds := session.OutboundsFromContext(ctx)
 	ob := outbounds[len(outbounds)-1]
 
@@ -525,6 +554,14 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 
 	routingLink := routing_session.AsRoutingContext(ctx)
 	inTag := routingLink.GetInboundTag()
+	resolvedDNS, err := d.resolveDNSTarget(inTag, ob.Target)
+	if err != nil {
+		errors.LogWarningInner(ctx, err, "DNS resolver connection failed")
+		common.Close(link.Writer)
+		common.Interrupt(link.Reader)
+		return
+	}
+	ob.Target = resolvedDNS
 	isPickRoute := 0
 	var matchedRuleID string
 	if forcedOutboundTag := session.GetForcedOutboundTagFromContext(ctx); forcedOutboundTag != "" {
@@ -545,11 +582,6 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 			if h := d.ohm.GetHandler(outTag); h != nil {
 				isPickRoute = 2
 				matchedRuleID = route.GetRuleTag()
-				if route.GetRuleTag() == "" {
-					errors.LogInfo(ctx, "taking detour [", outTag, "] for [", destination, "]")
-				} else {
-					errors.LogInfo(ctx, "Hit route rule: [", route.GetRuleTag(), "] so taking detour [", outTag, "] for [", destination, "]")
-				}
 				handler = h
 			} else {
 				errors.LogWarning(ctx, "non existing outTag: ", outTag)
@@ -557,8 +589,18 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 				common.Interrupt(link.Reader)
 				return // DO NOT CHANGE: the traffic shouldn't be processed by default outbound if the specified outbound tag doesn't exist (yet), e.g., VLESS Reverse Proxy
 			}
-		} else {
-			errors.LogInfo(ctx, "default route for ", destination)
+		} else if d.userFallback != nil && !stderrors.Is(err, common.ErrNoClue) {
+			errors.LogWarningInner(ctx, err, "routing failed")
+			common.Close(link.Writer)
+			common.Interrupt(link.Reader)
+			return
+		} else if tag := d.userFallback[routingLink.GetUser()]; tag != "" {
+			handler = d.ohm.GetHandler(tag)
+			if handler == nil {
+				common.Close(link.Writer)
+				common.Interrupt(link.Reader)
+				return
+			}
 		}
 	}
 
@@ -573,7 +615,35 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 		return
 	}
 
+	if d.guardIPRules && isPickRoute != 1 && ob.Target.Address.Family().IsDomain() && handler.Tag() != "block" && !d.blockedOutbounds[handler.Tag()] {
+		route, ip, err := d.checkedDestination(routingLink, ob.Target.Address.Domain())
+		if err != nil {
+			errors.LogWarningInner(ctx, err, "routing destination check failed")
+			common.Close(link.Writer)
+			common.Interrupt(link.Reader)
+			return
+		}
+		if route != nil {
+			handler = d.ohm.GetHandler(route.GetOutboundTag())
+			if handler == nil {
+				common.Close(link.Writer)
+				common.Interrupt(link.Reader)
+				return
+			}
+			matchedRuleID, isPickRoute = route.GetRuleTag(), 2
+		}
+		ob.Target.Address = net.IPAddress(ip)
+	}
 	ob.Tag = handler.Tag()
+	if isPickRoute == 2 {
+		if matchedRuleID == "" {
+			errors.LogInfo(ctx, "taking detour [", ob.Tag, "] for [", destination, "]")
+		} else {
+			errors.LogInfo(ctx, "Hit route rule: [", matchedRuleID, "] so taking detour [", ob.Tag, "] for [", destination, "]")
+		}
+	} else if isPickRoute == 0 {
+		errors.LogInfo(ctx, "default route for ", destination)
+	}
 	if d.routeEventSink.Load() != nil {
 		d.emitRouteEvent(RouteEvent{InboundTag: inTag, OutboundTag: ob.Tag, RuleID: matchedRuleID, Target: destination.String(), MatchedRule: isPickRoute == 2})
 	}

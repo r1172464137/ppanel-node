@@ -58,6 +58,7 @@ func (vc *XrayCore) DelUsers(users []panel.UserInfo, tag string, _ *panel.NodeIn
 		if err != nil {
 			return err
 		}
+		vc.dispatcher.CloseUserFlows(user)
 		delete(vc.users.uidMap, user)
 		if v, ok := vc.dispatcher.Counter.Load(tag); ok {
 			tc := v.(*counter.TrafficCounter)
@@ -70,6 +71,26 @@ func (vc *XrayCore) DelUsers(users []panel.UserInfo, tag string, _ *panel.NodeIn
 		}
 	}
 	return nil
+}
+
+// ResetNodeUsers clears the local accounting and connection state after removing an inbound.
+func (vc *XrayCore) ResetNodeUsers(tag string) {
+	vc.users.mapLock.Lock()
+	defer vc.users.mapLock.Unlock()
+	prefix := tag + "|"
+	for user := range vc.users.uidMap {
+		if !strings.HasPrefix(user, prefix) {
+			continue
+		}
+		vc.dispatcher.CloseUserFlows(user)
+		delete(vc.users.uidMap, user)
+		if v, ok := vc.dispatcher.Counter.Load(tag); ok {
+			v.(*counter.TrafficCounter).Delete(user)
+		}
+		if v, ok := vc.dispatcher.LinkManagers.LoadAndDelete(user); ok {
+			v.(*dispatcher.LinkManager).CloseAll()
+		}
+	}
 }
 
 func (vc *XrayCore) GetUserTrafficSlice(tag string, mintraffic int) ([]panel.UserTraffic, error) {

@@ -25,18 +25,21 @@ type ServerConfigResponse struct {
 }
 
 type Data struct {
-	TrafficReportThreshold int            `json:"traffic_report_threshold"`
-	PushInterval           int            `json:"push_interval"`
-	PullInterval           int            `json:"pull_interval"`
-	IPStrategy             string         `json:"ip_strategy"`
-	DNS                    *[]DNSItem     `json:"dns"`
-	Block                  *[]string      `json:"block"`
-	BlockIPs               *[]string      `json:"block_ips"`
-	BlockProtocols         *[]string      `json:"block_protocols"`
-	Outbound               *[]Outbound    `json:"outbound"`
-	Protocols              *[]Protocol    `json:"protocols"`
-	Total                  int            `json:"total"`
-	Routing                *RoutingPolicy `json:"routing,omitempty"`
+	TrafficReportThreshold int               `json:"traffic_report_threshold"`
+	PushInterval           int               `json:"push_interval"`
+	PullInterval           int               `json:"pull_interval"`
+	IPStrategy             string            `json:"ip_strategy"`
+	DNS                    *[]DNSItem        `json:"dns"`
+	Block                  *[]string         `json:"block"`
+	BlockIPs               *[]string         `json:"block_ips"`
+	BlockProtocols         *[]string         `json:"block_protocols"`
+	Outbound               *[]Outbound       `json:"outbound"`
+	Protocols              *[]Protocol       `json:"protocols"`
+	Total                  int               `json:"total"`
+	Routing                *RoutingPolicy    `json:"routing,omitempty"`
+	IdentitySnapshot       *IdentitySnapshot `json:"identity_snapshot,omitempty"`
+	DeliveryAPIHost        string            `json:"-"`
+	DeliveryServerID       int               `json:"-"`
 	// Retain JSON presence, including explicit null, for fail-closed validation.
 	RoutingPresent       bool `json:"-"`
 	LegacyRoutingPresent bool `json:"-"`
@@ -51,15 +54,16 @@ func (d Data) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("mixed routing configuration")
 	}
 	return json.Marshal(struct {
-		TrafficReportThreshold int            `json:"traffic_report_threshold"`
-		PushInterval           int            `json:"push_interval"`
-		PullInterval           int            `json:"pull_interval"`
-		IPStrategy             string         `json:"ip_strategy"`
-		DNS                    *[]DNSItem     `json:"dns"`
-		Protocols              *[]Protocol    `json:"protocols"`
-		Total                  int            `json:"total"`
-		Routing                *RoutingPolicy `json:"routing"`
-	}{d.TrafficReportThreshold, d.PushInterval, d.PullInterval, d.IPStrategy, d.DNS, d.Protocols, d.Total, d.Routing})
+		TrafficReportThreshold int               `json:"traffic_report_threshold"`
+		PushInterval           int               `json:"push_interval"`
+		PullInterval           int               `json:"pull_interval"`
+		IPStrategy             string            `json:"ip_strategy"`
+		DNS                    *[]DNSItem        `json:"dns"`
+		Protocols              *[]Protocol       `json:"protocols"`
+		Total                  int               `json:"total"`
+		Routing                *RoutingPolicy    `json:"routing"`
+		IdentitySnapshot       *IdentitySnapshot `json:"identity_snapshot,omitempty"`
+	}{d.TrafficReportThreshold, d.PushInterval, d.PullInterval, d.IPStrategy, d.DNS, d.Protocols, d.Total, d.Routing, d.IdentitySnapshot})
 }
 
 func (d *Data) UnmarshalJSON(b []byte) error {
@@ -78,6 +82,11 @@ func (d *Data) UnmarshalJSON(b []byte) error {
 			if err := validateArrayObjects(raw, entry.allowed, entry.name); err != nil {
 				return err
 			}
+		}
+	}
+	if raw, ok := fields["identity_snapshot"]; ok {
+		if err := validateSnapshotJSON(raw); err != nil {
+			return fmt.Errorf("invalid identity snapshot: %w", err)
 		}
 	}
 	if raw, ok := fields["routing"]; ok {
@@ -111,20 +120,64 @@ func (d *Data) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+type IdentitySnapshot struct {
+	SnapshotID string                 `json:"snapshot_id"`
+	Protocols  []ProtocolUserSnapshot `json:"protocols"`
+}
+
+type ProtocolUserSnapshot struct {
+	Protocol string     `json:"protocol"`
+	Users    []UserInfo `json:"users"`
+}
+
+type UserDefault struct {
+	UserID     int64  `json:"user_id"`
+	OutboundID string `json:"outbound_id"`
+}
+
+type DNSPolicy struct {
+	QueryStrategy string              `json:"query_strategy"`
+	Resolvers     []PolicyDNSResolver `json:"resolvers"`
+}
+
+type PolicyDNSResolver struct {
+	ID          string   `json:"id"`
+	Protocol    string   `json:"protocol"`
+	Address     string   `json:"address"`
+	BootstrapIP string   `json:"bootstrap_ip,omitempty"`
+	Domains     []string `json:"domains"`
+	OutboundID  string   `json:"outbound_id"`
+}
+
 type RoutingIdentity struct {
 	Mode                    string `json:"mode"`
 	Source                  string `json:"source"`
 	SourceServerID          int64  `json:"source_server_id"`
 	SourceRevision          int64  `json:"source_revision"`
 	LocalTransitionRevision int64  `json:"local_transition_revision"`
+	SnapshotID              string `json:"snapshot_id,omitempty"`
 }
 
 type RoutingPolicy struct {
-	Version           int         `json:"version"`
-	Outbounds         []Outbound  `json:"outbounds"`
-	Rules             []RouteRule `json:"rules"`
-	DefaultOutboundID string      `json:"default_outbound_id"`
+	Version           int           `json:"version"`
+	Outbounds         []Outbound    `json:"outbounds"`
+	Rules             []RouteRule   `json:"rules"`
+	DefaultOutboundID string        `json:"default_outbound_id"`
+	UserDefaults      []UserDefault `json:"user_defaults,omitempty"`
+	DNSPolicy         *DNSPolicy    `json:"dns_policy,omitempty"`
 	RoutingIdentity
+}
+
+func (p RoutingPolicy) MarshalJSON() ([]byte, error) {
+	type alias RoutingPolicy
+	var defaults *[]UserDefault
+	if p.Version == 2 {
+		defaults = &p.UserDefaults
+	}
+	return json.Marshal(struct {
+		*alias
+		UserDefaults *[]UserDefault `json:"user_defaults,omitempty"`
+	}{alias: (*alias)(&p), UserDefaults: defaults})
 }
 
 type RouteRule struct {
@@ -134,6 +187,7 @@ type RouteRule struct {
 	Kind       string   `json:"kind"`
 	Values     []string `json:"values"`
 	OutboundID string   `json:"outbound_id"`
+	UserIDs    []int64  `json:"user_ids,omitempty"`
 }
 
 type DNSItem struct {
@@ -167,6 +221,7 @@ func (d *DNSItem) UnmarshalJSON(raw []byte) error {
 
 type Outbound struct {
 	ID                      string   `json:"id,omitempty"`
+	ViaOutboundID           string   `json:"via_outbound_id,omitempty"`
 	Name                    string   `json:"name"`
 	Protocol                string   `json:"protocol"`
 	Address                 string   `json:"address"`
@@ -272,6 +327,7 @@ type Protocol struct {
 
 const MaxServerConfigResponseBytes = 2 * 1024 * 1024
 const RoutingVersionHeader = "X-PPanel-Routing-Version"
+const SupportedRoutingVersion = "2"
 
 // GetServerConfig observes a candidate; it does not claim it has been applied.
 // A 304 or identical body returns a pending candidate until Commit succeeds.
@@ -290,9 +346,17 @@ func GetServerConfig(ctx context.Context, c *ServerClient) (*ServerConfigRespons
 	client := c.Client
 	path := fmt.Sprintf("/v2/server/%d", c.ServerId)
 	request := client.R().SetContext(ctx).SetDoNotParseResponse(true).
-		SetHeader("If-None-Match", etag).SetHeader(RoutingVersionHeader, "1")
+		SetHeader("If-None-Match", etag).SetHeader(RoutingVersionHeader, SupportedRoutingVersion)
 	setProtobufResponseAccept(request)
 	r, err := request.Get(path)
+	// Older panels accept only the literal v1 header. A single v1 retry keeps
+	// their unchanged policies usable; a v2 policy must still reject v1.
+	if err == nil && r.StatusCode() == http.StatusUpgradeRequired {
+		if r.RawBody() != nil {
+			_ = r.RawBody().Close()
+		}
+		r, err = request.SetHeader(RoutingVersionHeader, "1").Get(path)
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("配置请求已取消: %w", ctx.Err())
@@ -365,6 +429,26 @@ func GetServerConfig(ctx context.Context, c *ServerClient) (*ServerConfigRespons
 		}
 		if message.Data != nil && message.Data.Routing != nil {
 			if err := rejectUnknownRoutingFields(message.Data.Routing.ProtoReflect()); err != nil {
+				return nil, err
+			}
+		}
+		if message.Data != nil && message.Data.IdentitySnapshot != nil {
+			for _, group := range message.Data.IdentitySnapshot.Protocols {
+				if group == nil {
+					continue
+				}
+				for _, user := range group.Users {
+					if user == nil {
+						continue
+					}
+					for _, value := range []int64{user.Id, user.SpeedLimit, user.DeviceLimit} {
+						if value < 0 || int64(int(value)) != value {
+							return nil, fmt.Errorf("snapshot user integer outside node range")
+						}
+					}
+				}
+			}
+			if err := rejectUnknownRoutingFields(message.Data.IdentitySnapshot.ProtoReflect()); err != nil {
 				return nil, err
 			}
 		}

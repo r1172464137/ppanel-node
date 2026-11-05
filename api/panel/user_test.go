@@ -43,6 +43,7 @@ func TestEmptyUserListIsDifferentFromNotModified(t *testing.T) {
 			if err != nil || users == nil || len(users) != 0 {
 				t.Fatalf("empty list = %#v, %v", users, err)
 			}
+			client.CommitUserList()
 			users, err = client.GetUserList(context.Background())
 			if err != nil || users != nil {
 				t.Fatalf("304 = %#v, %v", users, err)
@@ -113,7 +114,11 @@ func TestMalformedUserListDoesNotAdvanceETag(t *testing.T) {
 	if _, err := client.GetUserList(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	if client.userEtag != "previous" || client.pendingUserEtag != "next" {
+		t.Fatal("decode advanced applied ETag")
+	}
+	client.CommitUserList()
 	if client.userEtag != "next" {
-		t.Fatal("successful decode did not update ETag")
+		t.Fatal("commit did not update ETag")
 	}
 }

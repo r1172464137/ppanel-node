@@ -104,7 +104,7 @@ func routingIdentityToProtobuf(v *RoutingIdentity) *serverv1.RoutingIdentity {
 		return nil
 	}
 	return &serverv1.RoutingIdentity{Mode: v.Mode, Source: v.Source, SourceServerId: v.SourceServerID,
-		SourceRevision: v.SourceRevision, LocalTransitionRevision: v.LocalTransitionRevision}
+		SourceRevision: v.SourceRevision, LocalTransitionRevision: v.LocalTransitionRevision, SnapshotId: v.SnapshotID}
 }
 func statusToProtobuf(v ServerPushStatusRequest) *serverv1.PushServerStatusRequest {
 	p := &serverv1.PushServerStatusRequest{Cpu: v.Cpu, Mem: v.Mem, Disk: v.Disk, UpdatedAt: v.UpdatedAt}

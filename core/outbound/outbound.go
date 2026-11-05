@@ -10,6 +10,10 @@ import (
 
 // build default freedom outbund
 func buildDefaultOutbound() (*core.OutboundHandlerConfig, error) {
+	return buildDirectOutbound("UseIPv4v6")
+}
+
+func buildDirectOutbound(strategy string) (*core.OutboundHandlerConfig, error) {
 	outboundDetourConfig := &coreConf.OutboundDetourConfig{}
 	outboundDetourConfig.Protocol = "freedom"
 	outboundDetourConfig.Tag = DefaultTag
@@ -17,7 +21,7 @@ func buildDefaultOutbound() (*core.OutboundHandlerConfig, error) {
 	//outboundDetourConfig.SendThrough = &sendthrough
 
 	proxySetting := &coreConf.FreedomConfig{
-		DomainStrategy: "UseIPv4v6",
+		DomainStrategy: strategy,
 	}
 	var setting json.RawMessage
 	setting, err := json.Marshal(proxySetting)

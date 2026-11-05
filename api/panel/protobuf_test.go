@@ -47,7 +47,7 @@ func TestServerClientUsesProtobuf(t *testing.T) {
 		if got := request.Header.Get("Accept"); got != protobufContentType {
 			t.Fatalf("Accept = %q, want %q", got, protobufContentType)
 		}
-		if got := request.Header.Get(RoutingVersionHeader); got != "1" {
+		if got := request.Header.Get(RoutingVersionHeader); got != SupportedRoutingVersion {
 			t.Fatalf("routing capability = %q", got)
 		}
 		writer.Header().Set("ETag", `"protobuf-config"`)

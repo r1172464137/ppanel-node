@@ -55,6 +55,7 @@ message RoutingIdentity {
   int64 source_server_id = 3;
   int64 source_revision = 4;
   int64 local_transition_revision = 5;
+  string snapshot_id = 6;
 }
 
 message RoutingError {
@@ -94,6 +95,7 @@ message ServerUser {
   string uuid = 2;
   int64 speed_limit = 3;
   int64 device_limit = 4;
+  int64 account_id = 5;
 }
 
 message ServerUserListData {
@@ -161,6 +163,7 @@ message Outbound {
   repeated string ip_rules = 42;
   repeated string protocol_rules = 43;
   string id = 44;
+  string via_outbound_id = 45;
 }
 
 enum RouteKind {
@@ -177,6 +180,36 @@ message RouteRule {
   RouteKind kind = 4;
   repeated string values = 5;
   string outbound_id = 6;
+  repeated int64 user_ids = 7;
+}
+
+message UserDefault {
+  int64 user_id = 1;
+  string outbound_id = 2;
+}
+
+message PolicyDNSResolver {
+  string id = 1;
+  string protocol = 2;
+  string address = 3;
+  string bootstrap_ip = 4;
+  repeated string domains = 5;
+  string outbound_id = 6;
+}
+
+message DNSPolicy {
+  string query_strategy = 1;
+  repeated PolicyDNSResolver resolvers = 2;
+}
+
+message ProtocolUserSnapshot {
+  string protocol = 1;
+  repeated ServerUser users = 2;
+}
+
+message IdentitySnapshot {
+  string snapshot_id = 1;
+  repeated ProtocolUserSnapshot protocols = 2;
 }
 
 message RoutingPolicy {
@@ -189,6 +222,8 @@ message RoutingPolicy {
   int64 source_server_id = 7;
   int64 source_revision = 8;
   int64 local_transition_revision = 9;
+  repeated UserDefault user_defaults = 10;
+  DNSPolicy dns_policy = 11;
 }
 
 // ServerProtocol is PPanel's normalized, flat protocol configuration. The
@@ -279,6 +314,7 @@ message QueryServerProtocolConfigData {
   repeated string block_ips = 10;
   repeated string block_protocols = 11;
   RoutingPolicy routing = 12;
+  IdentitySnapshot identity_snapshot = 13;
 }
 
 message QueryServerProtocolConfigResponse {

@@ -2,7 +2,9 @@ package panel
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -100,18 +102,31 @@ func identityOf(v *ServerConfigResponse, serverID int) *RoutingIdentity {
 		// Legacy responses carry no authoritative revision/source identity.
 		return nil
 	}
-	id := &v.Data.Routing.RoutingIdentity
+	identity := v.Data.Routing.RoutingIdentity
+	if v.Data.Routing.Version == 2 {
+		if v.Data.IdentitySnapshot == nil {
+			return nil
+		}
+		identity.SnapshotID = v.Data.IdentitySnapshot.SnapshotID
+		if len(identity.SnapshotID) != 64 {
+			return nil
+		}
+		if _, err := hex.DecodeString(identity.SnapshotID); err != nil || identity.SnapshotID != strings.ToLower(identity.SnapshotID) {
+			return nil
+		}
+	}
+	id := &identity
 	// A corrupt candidate must not inject arbitrary/secret or unbounded text
 	// into status reports. Publish identities only when their shape is valid.
 	if id.SourceRevision <= 0 || id.LocalTransitionRevision < 0 {
 		return nil
 	}
 	switch id.Mode {
-	case "ordered-v1-local":
+	case "ordered-v1-local", "ordered-v2-local":
 		if id.Source != "server" || id.SourceServerID <= 0 || id.SourceServerID != int64(serverID) || id.SourceRevision != id.LocalTransitionRevision {
 			return nil
 		}
-	case "ordered-v1-inherited":
+	case "ordered-v1-inherited", "ordered-v2-inherited":
 		if id.Source != "global" || id.SourceServerID != 0 {
 			return nil
 		}
@@ -198,6 +213,11 @@ func (s *RoutingState) Snapshot() RoutingStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	v := RoutingStatus{Version: 1, InstanceID: s.instanceID, Applied: copyIdentity(s.applied), Pending: copyIdentity(s.pending)}
+	for _, id := range []*RoutingIdentity{s.applied, s.pending} {
+		if id != nil && strings.HasPrefix(id.Mode, "ordered-v2-") {
+			v.Version = 2
+		}
+	}
 	lastError := s.lastError
 	if s.fetchError != nil {
 		lastError = s.fetchError
@@ -205,6 +225,9 @@ func (s *RoutingState) Snapshot() RoutingStatus {
 	if lastError != nil {
 		e := *lastError
 		e.Identity = copyIdentity(e.Identity)
+		if e.Identity != nil && strings.HasPrefix(e.Identity.Mode, "ordered-v2-") {
+			v.Version = 2
+		}
 		v.Error = &e
 	}
 	return v

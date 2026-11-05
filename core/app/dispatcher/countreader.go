@@ -4,6 +4,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/buf"
 )
 
@@ -20,6 +21,14 @@ func (c *CounterReader) ReadMultiBufferTimeout(timeout time.Duration) (buf.Multi
 		c.Counter.Add(int64(mb.Len()))
 	}
 	return mb, err
+}
+
+func (c *CounterReader) Interrupt() {
+	if wrapper, ok := c.Reader.(*buf.TimeoutWrapperReader); ok {
+		_ = common.Interrupt(wrapper.Reader)
+		return
+	}
+	_ = common.Interrupt(c.Reader)
 }
 
 func (c *CounterReader) ReadMultiBuffer() (buf.MultiBuffer, error) {

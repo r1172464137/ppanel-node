@@ -17,11 +17,17 @@ type OnlineUser struct {
 	IP  string
 }
 
+// InboundTag matches the controller tag used for authentication and accounting.
+func InboundTag(apiHost, protocol string, serverID int) string {
+	return fmt.Sprintf("[%s]-%s:%d", apiHost, protocol, serverID)
+}
+
 type UserInfo struct {
 	Id          int    `json:"id"`
 	Uuid        string `json:"uuid"`
 	SpeedLimit  int    `json:"speed_limit"`
 	DeviceLimit int    `json:"device_limit"`
+	AccountID   int64  `json:"account_id,omitempty"`
 }
 
 type UserListBody struct {
@@ -67,7 +73,7 @@ func (c *NodeClient) GetUserList(ctx context.Context) ([]UserInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.userEtag = r.Header().Get("ETag")
+	c.pendingUserEtag = r.Header().Get("ETag")
 	return users, nil
 }
 
@@ -132,8 +138,13 @@ func (c *NodeClient) getUserListProtobuf(ctx context.Context) ([]UserInfo, error
 			DeviceLimit: int(user.DeviceLimit),
 		})
 	}
-	c.userEtag = r.Header().Get("ETag")
+	c.pendingUserEtag = r.Header().Get("ETag")
 	return users, nil
+}
+
+// CommitUserList advances the conditional request only after the candidate is applied.
+func (c *NodeClient) CommitUserList() {
+	c.userEtag = c.pendingUserEtag
 }
 
 func (c *NodeClient) GetUserAlive() (map[int]int, error) {

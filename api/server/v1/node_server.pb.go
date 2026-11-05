@@ -402,6 +402,7 @@ type RoutingIdentity struct {
 	SourceServerId          int64                  `protobuf:"varint,3,opt,name=source_server_id,json=sourceServerId,proto3" json:"source_server_id,omitempty"`
 	SourceRevision          int64                  `protobuf:"varint,4,opt,name=source_revision,json=sourceRevision,proto3" json:"source_revision,omitempty"`
 	LocalTransitionRevision int64                  `protobuf:"varint,5,opt,name=local_transition_revision,json=localTransitionRevision,proto3" json:"local_transition_revision,omitempty"`
+	SnapshotId              string                 `protobuf:"bytes,6,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -469,6 +470,13 @@ func (x *RoutingIdentity) GetLocalTransitionRevision() int64 {
 		return x.LocalTransitionRevision
 	}
 	return 0
+}
+
+func (x *RoutingIdentity) GetSnapshotId() string {
+	if x != nil {
+		return x.SnapshotId
+	}
+	return ""
 }
 
 type RoutingError struct {
@@ -765,6 +773,7 @@ type ServerUser struct {
 	Uuid          string                 `protobuf:"bytes,2,opt,name=uuid,proto3" json:"uuid,omitempty"`
 	SpeedLimit    int64                  `protobuf:"varint,3,opt,name=speed_limit,json=speedLimit,proto3" json:"speed_limit,omitempty"`
 	DeviceLimit   int64                  `protobuf:"varint,4,opt,name=device_limit,json=deviceLimit,proto3" json:"device_limit,omitempty"`
+	AccountId     int64                  `protobuf:"varint,5,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -823,6 +832,13 @@ func (x *ServerUser) GetSpeedLimit() int64 {
 func (x *ServerUser) GetDeviceLimit() int64 {
 	if x != nil {
 		return x.DeviceLimit
+	}
+	return 0
+}
+
+func (x *ServerUser) GetAccountId() int64 {
+	if x != nil {
+		return x.AccountId
 	}
 	return 0
 }
@@ -1048,6 +1064,7 @@ type Outbound struct {
 	IpRules                 []string               `protobuf:"bytes,42,rep,name=ip_rules,json=ipRules,proto3" json:"ip_rules,omitempty"`
 	ProtocolRules           []string               `protobuf:"bytes,43,rep,name=protocol_rules,json=protocolRules,proto3" json:"protocol_rules,omitempty"`
 	Id                      string                 `protobuf:"bytes,44,opt,name=id,proto3" json:"id,omitempty"`
+	ViaOutboundId           string                 `protobuf:"bytes,45,opt,name=via_outbound_id,json=viaOutboundId,proto3" json:"via_outbound_id,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -1390,6 +1407,13 @@ func (x *Outbound) GetId() string {
 	return ""
 }
 
+func (x *Outbound) GetViaOutboundId() string {
+	if x != nil {
+		return x.ViaOutboundId
+	}
+	return ""
+}
+
 type RouteRule struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1398,6 +1422,7 @@ type RouteRule struct {
 	Kind          RouteKind              `protobuf:"varint,4,opt,name=kind,proto3,enum=ppanel.node.server.v1.RouteKind" json:"kind,omitempty"`
 	Values        []string               `protobuf:"bytes,5,rep,name=values,proto3" json:"values,omitempty"`
 	OutboundId    string                 `protobuf:"bytes,6,opt,name=outbound_id,json=outboundId,proto3" json:"outbound_id,omitempty"`
+	UserIds       []int64                `protobuf:"varint,7,rep,packed,name=user_ids,json=userIds,proto3" json:"user_ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1474,6 +1499,305 @@ func (x *RouteRule) GetOutboundId() string {
 	return ""
 }
 
+func (x *RouteRule) GetUserIds() []int64 {
+	if x != nil {
+		return x.UserIds
+	}
+	return nil
+}
+
+type UserDefault struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        int64                  `protobuf:"varint,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	OutboundId    string                 `protobuf:"bytes,2,opt,name=outbound_id,json=outboundId,proto3" json:"outbound_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserDefault) Reset() {
+	*x = UserDefault{}
+	mi := &file_api_server_v1_node_server_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserDefault) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserDefault) ProtoMessage() {}
+
+func (x *UserDefault) ProtoReflect() protoreflect.Message {
+	mi := &file_api_server_v1_node_server_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserDefault.ProtoReflect.Descriptor instead.
+func (*UserDefault) Descriptor() ([]byte, []int) {
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *UserDefault) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *UserDefault) GetOutboundId() string {
+	if x != nil {
+		return x.OutboundId
+	}
+	return ""
+}
+
+type PolicyDNSResolver struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Protocol      string                 `protobuf:"bytes,2,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	Address       string                 `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"`
+	BootstrapIp   string                 `protobuf:"bytes,4,opt,name=bootstrap_ip,json=bootstrapIp,proto3" json:"bootstrap_ip,omitempty"`
+	Domains       []string               `protobuf:"bytes,5,rep,name=domains,proto3" json:"domains,omitempty"`
+	OutboundId    string                 `protobuf:"bytes,6,opt,name=outbound_id,json=outboundId,proto3" json:"outbound_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PolicyDNSResolver) Reset() {
+	*x = PolicyDNSResolver{}
+	mi := &file_api_server_v1_node_server_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PolicyDNSResolver) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PolicyDNSResolver) ProtoMessage() {}
+
+func (x *PolicyDNSResolver) ProtoReflect() protoreflect.Message {
+	mi := &file_api_server_v1_node_server_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PolicyDNSResolver.ProtoReflect.Descriptor instead.
+func (*PolicyDNSResolver) Descriptor() ([]byte, []int) {
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *PolicyDNSResolver) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *PolicyDNSResolver) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *PolicyDNSResolver) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *PolicyDNSResolver) GetBootstrapIp() string {
+	if x != nil {
+		return x.BootstrapIp
+	}
+	return ""
+}
+
+func (x *PolicyDNSResolver) GetDomains() []string {
+	if x != nil {
+		return x.Domains
+	}
+	return nil
+}
+
+func (x *PolicyDNSResolver) GetOutboundId() string {
+	if x != nil {
+		return x.OutboundId
+	}
+	return ""
+}
+
+type DNSPolicy struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	QueryStrategy string                 `protobuf:"bytes,1,opt,name=query_strategy,json=queryStrategy,proto3" json:"query_strategy,omitempty"`
+	Resolvers     []*PolicyDNSResolver   `protobuf:"bytes,2,rep,name=resolvers,proto3" json:"resolvers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DNSPolicy) Reset() {
+	*x = DNSPolicy{}
+	mi := &file_api_server_v1_node_server_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DNSPolicy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DNSPolicy) ProtoMessage() {}
+
+func (x *DNSPolicy) ProtoReflect() protoreflect.Message {
+	mi := &file_api_server_v1_node_server_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DNSPolicy.ProtoReflect.Descriptor instead.
+func (*DNSPolicy) Descriptor() ([]byte, []int) {
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *DNSPolicy) GetQueryStrategy() string {
+	if x != nil {
+		return x.QueryStrategy
+	}
+	return ""
+}
+
+func (x *DNSPolicy) GetResolvers() []*PolicyDNSResolver {
+	if x != nil {
+		return x.Resolvers
+	}
+	return nil
+}
+
+type ProtocolUserSnapshot struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Protocol      string                 `protobuf:"bytes,1,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	Users         []*ServerUser          `protobuf:"bytes,2,rep,name=users,proto3" json:"users,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProtocolUserSnapshot) Reset() {
+	*x = ProtocolUserSnapshot{}
+	mi := &file_api_server_v1_node_server_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProtocolUserSnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProtocolUserSnapshot) ProtoMessage() {}
+
+func (x *ProtocolUserSnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_api_server_v1_node_server_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProtocolUserSnapshot.ProtoReflect.Descriptor instead.
+func (*ProtocolUserSnapshot) Descriptor() ([]byte, []int) {
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *ProtocolUserSnapshot) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *ProtocolUserSnapshot) GetUsers() []*ServerUser {
+	if x != nil {
+		return x.Users
+	}
+	return nil
+}
+
+type IdentitySnapshot struct {
+	state         protoimpl.MessageState  `protogen:"open.v1"`
+	SnapshotId    string                  `protobuf:"bytes,1,opt,name=snapshot_id,json=snapshotId,proto3" json:"snapshot_id,omitempty"`
+	Protocols     []*ProtocolUserSnapshot `protobuf:"bytes,2,rep,name=protocols,proto3" json:"protocols,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IdentitySnapshot) Reset() {
+	*x = IdentitySnapshot{}
+	mi := &file_api_server_v1_node_server_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IdentitySnapshot) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IdentitySnapshot) ProtoMessage() {}
+
+func (x *IdentitySnapshot) ProtoReflect() protoreflect.Message {
+	mi := &file_api_server_v1_node_server_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IdentitySnapshot.ProtoReflect.Descriptor instead.
+func (*IdentitySnapshot) Descriptor() ([]byte, []int) {
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *IdentitySnapshot) GetSnapshotId() string {
+	if x != nil {
+		return x.SnapshotId
+	}
+	return ""
+}
+
+func (x *IdentitySnapshot) GetProtocols() []*ProtocolUserSnapshot {
+	if x != nil {
+		return x.Protocols
+	}
+	return nil
+}
+
 type RoutingPolicy struct {
 	state                   protoimpl.MessageState `protogen:"open.v1"`
 	Version                 uint32                 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
@@ -1485,13 +1809,15 @@ type RoutingPolicy struct {
 	SourceServerId          int64                  `protobuf:"varint,7,opt,name=source_server_id,json=sourceServerId,proto3" json:"source_server_id,omitempty"`
 	SourceRevision          int64                  `protobuf:"varint,8,opt,name=source_revision,json=sourceRevision,proto3" json:"source_revision,omitempty"`
 	LocalTransitionRevision int64                  `protobuf:"varint,9,opt,name=local_transition_revision,json=localTransitionRevision,proto3" json:"local_transition_revision,omitempty"`
+	UserDefaults            []*UserDefault         `protobuf:"bytes,10,rep,name=user_defaults,json=userDefaults,proto3" json:"user_defaults,omitempty"`
+	DnsPolicy               *DNSPolicy             `protobuf:"bytes,11,opt,name=dns_policy,json=dnsPolicy,proto3" json:"dns_policy,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
 
 func (x *RoutingPolicy) Reset() {
 	*x = RoutingPolicy{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[17]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1503,7 +1829,7 @@ func (x *RoutingPolicy) String() string {
 func (*RoutingPolicy) ProtoMessage() {}
 
 func (x *RoutingPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[17]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1516,7 +1842,7 @@ func (x *RoutingPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RoutingPolicy.ProtoReflect.Descriptor instead.
 func (*RoutingPolicy) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{17}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *RoutingPolicy) GetVersion() uint32 {
@@ -1580,6 +1906,20 @@ func (x *RoutingPolicy) GetLocalTransitionRevision() int64 {
 		return x.LocalTransitionRevision
 	}
 	return 0
+}
+
+func (x *RoutingPolicy) GetUserDefaults() []*UserDefault {
+	if x != nil {
+		return x.UserDefaults
+	}
+	return nil
+}
+
+func (x *RoutingPolicy) GetDnsPolicy() *DNSPolicy {
+	if x != nil {
+		return x.DnsPolicy
+	}
+	return nil
 }
 
 // ServerProtocol is PPanel's normalized, flat protocol configuration. The
@@ -1660,7 +2000,7 @@ type ServerProtocol struct {
 
 func (x *ServerProtocol) Reset() {
 	*x = ServerProtocol{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[18]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1672,7 +2012,7 @@ func (x *ServerProtocol) String() string {
 func (*ServerProtocol) ProtoMessage() {}
 
 func (x *ServerProtocol) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[18]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1685,7 +2025,7 @@ func (x *ServerProtocol) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServerProtocol.ProtoReflect.Descriptor instead.
 func (*ServerProtocol) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{18}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ServerProtocol) GetType() string {
@@ -2166,13 +2506,14 @@ type QueryServerProtocolConfigData struct {
 	BlockIps               []string               `protobuf:"bytes,10,rep,name=block_ips,json=blockIps,proto3" json:"block_ips,omitempty"`
 	BlockProtocols         []string               `protobuf:"bytes,11,rep,name=block_protocols,json=blockProtocols,proto3" json:"block_protocols,omitempty"`
 	Routing                *RoutingPolicy         `protobuf:"bytes,12,opt,name=routing,proto3" json:"routing,omitempty"`
+	IdentitySnapshot       *IdentitySnapshot      `protobuf:"bytes,13,opt,name=identity_snapshot,json=identitySnapshot,proto3" json:"identity_snapshot,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
 
 func (x *QueryServerProtocolConfigData) Reset() {
 	*x = QueryServerProtocolConfigData{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[19]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2184,7 +2525,7 @@ func (x *QueryServerProtocolConfigData) String() string {
 func (*QueryServerProtocolConfigData) ProtoMessage() {}
 
 func (x *QueryServerProtocolConfigData) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[19]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2197,7 +2538,7 @@ func (x *QueryServerProtocolConfigData) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryServerProtocolConfigData.ProtoReflect.Descriptor instead.
 func (*QueryServerProtocolConfigData) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{19}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *QueryServerProtocolConfigData) GetTrafficReportThreshold() int64 {
@@ -2284,6 +2625,13 @@ func (x *QueryServerProtocolConfigData) GetRouting() *RoutingPolicy {
 	return nil
 }
 
+func (x *QueryServerProtocolConfigData) GetIdentitySnapshot() *IdentitySnapshot {
+	if x != nil {
+		return x.IdentitySnapshot
+	}
+	return nil
+}
+
 type QueryServerProtocolConfigResponse struct {
 	state         protoimpl.MessageState         `protogen:"open.v1"`
 	Code          uint32                         `protobuf:"varint,1,opt,name=code,proto3" json:"code,omitempty"`
@@ -2295,7 +2643,7 @@ type QueryServerProtocolConfigResponse struct {
 
 func (x *QueryServerProtocolConfigResponse) Reset() {
 	*x = QueryServerProtocolConfigResponse{}
-	mi := &file_api_server_v1_node_server_proto_msgTypes[20]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2307,7 +2655,7 @@ func (x *QueryServerProtocolConfigResponse) String() string {
 func (*QueryServerProtocolConfigResponse) ProtoMessage() {}
 
 func (x *QueryServerProtocolConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_server_v1_node_server_proto_msgTypes[20]
+	mi := &file_api_server_v1_node_server_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2320,7 +2668,7 @@ func (x *QueryServerProtocolConfigResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use QueryServerProtocolConfigResponse.ProtoReflect.Descriptor instead.
 func (*QueryServerProtocolConfigResponse) Descriptor() ([]byte, []int) {
-	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{20}
+	return file_api_server_v1_node_server_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *QueryServerProtocolConfigResponse) GetCode() uint32 {
@@ -2374,13 +2722,15 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\vinstance_id\x18\t \x01(\tR\n" +
 	"instanceId\x12)\n" +
 	"\x10routing_sequence\x18\n" +
-	" \x01(\x04R\x0froutingSequence\"\xcc\x01\n" +
+	" \x01(\x04R\x0froutingSequence\"\xed\x01\n" +
 	"\x0fRoutingIdentity\x12\x12\n" +
 	"\x04mode\x18\x01 \x01(\tR\x04mode\x12\x16\n" +
 	"\x06source\x18\x02 \x01(\tR\x06source\x12(\n" +
 	"\x10source_server_id\x18\x03 \x01(\x03R\x0esourceServerId\x12'\n" +
 	"\x0fsource_revision\x18\x04 \x01(\x03R\x0esourceRevision\x12:\n" +
-	"\x19local_transition_revision\x18\x05 \x01(\x03R\x17localTransitionRevision\"\x82\x01\n" +
+	"\x19local_transition_revision\x18\x05 \x01(\x03R\x17localTransitionRevision\x12\x1f\n" +
+	"\vsnapshot_id\x18\x06 \x01(\tR\n" +
+	"snapshotId\"\x82\x01\n" +
 	"\fRoutingError\x12B\n" +
 	"\bidentity\x18\x01 \x01(\v2&.ppanel.node.server.v1.RoutingIdentityR\bidentity\x12\x14\n" +
 	"\x05stage\x18\x02 \x01(\tR\x05stage\x12\x18\n" +
@@ -2398,14 +2748,16 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\x17GetServerConfigResponse\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\rR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12;\n" +
-	"\x04data\x18\x03 \x01(\v2'.ppanel.node.server.v1.ServerConfigDataR\x04data\"t\n" +
+	"\x04data\x18\x03 \x01(\v2'.ppanel.node.server.v1.ServerConfigDataR\x04data\"\x93\x01\n" +
 	"\n" +
 	"ServerUser\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04uuid\x18\x02 \x01(\tR\x04uuid\x12\x1f\n" +
 	"\vspeed_limit\x18\x03 \x01(\x03R\n" +
 	"speedLimit\x12!\n" +
-	"\fdevice_limit\x18\x04 \x01(\x03R\vdeviceLimit\"M\n" +
+	"\fdevice_limit\x18\x04 \x01(\x03R\vdeviceLimit\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x05 \x01(\x03R\taccountId\"M\n" +
 	"\x12ServerUserListData\x127\n" +
 	"\x05users\x18\x01 \x03(\v2!.ppanel.node.server.v1.ServerUserR\x05users\"\x88\x01\n" +
 	"\x19GetServerUserListResponse\x12\x12\n" +
@@ -2417,8 +2769,7 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1f\n" +
 	"\vserver_name\x18\x03 \x01(\tR\n" +
 	"serverName\x12\x18\n" +
-	"\adomains\x18\x04 \x03(\tR\adomains\"\xef\n" +
-	"\n" +
+	"\adomains\x18\x04 \x03(\tR\adomains\"\x97\v\n" +
 	"\bOutbound\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
 	"\bprotocol\x18\x02 \x01(\tR\bprotocol\x12\x18\n" +
@@ -2471,7 +2822,8 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\x05rules\x18) \x03(\tR\x05rules\x12\x19\n" +
 	"\bip_rules\x18* \x03(\tR\aipRules\x12%\n" +
 	"\x0eprotocol_rules\x18+ \x03(\tR\rprotocolRules\x12\x0e\n" +
-	"\x02id\x18, \x01(\tR\x02id\"\xcd\x01\n" +
+	"\x02id\x18, \x01(\tR\x02id\x12&\n" +
+	"\x0fvia_outbound_id\x18- \x01(\tR\rviaOutboundId\"\xe8\x01\n" +
 	"\tRouteRule\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
 	"\aenabled\x18\x02 \x01(\bH\x00R\aenabled\x88\x01\x01\x12\x16\n" +
@@ -2479,9 +2831,32 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\x04kind\x18\x04 \x01(\x0e2 .ppanel.node.server.v1.RouteKindR\x04kind\x12\x16\n" +
 	"\x06values\x18\x05 \x03(\tR\x06values\x12\x1f\n" +
 	"\voutbound_id\x18\x06 \x01(\tR\n" +
-	"outboundIdB\n" +
+	"outboundId\x12\x19\n" +
+	"\buser_ids\x18\a \x03(\x03R\auserIdsB\n" +
 	"\n" +
-	"\b_enabled\"\x8b\x03\n" +
+	"\b_enabled\"G\n" +
+	"\vUserDefault\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\x03R\x06userId\x12\x1f\n" +
+	"\voutbound_id\x18\x02 \x01(\tR\n" +
+	"outboundId\"\xb7\x01\n" +
+	"\x11PolicyDNSResolver\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
+	"\bprotocol\x18\x02 \x01(\tR\bprotocol\x12\x18\n" +
+	"\aaddress\x18\x03 \x01(\tR\aaddress\x12!\n" +
+	"\fbootstrap_ip\x18\x04 \x01(\tR\vbootstrapIp\x12\x18\n" +
+	"\adomains\x18\x05 \x03(\tR\adomains\x12\x1f\n" +
+	"\voutbound_id\x18\x06 \x01(\tR\n" +
+	"outboundId\"z\n" +
+	"\tDNSPolicy\x12%\n" +
+	"\x0equery_strategy\x18\x01 \x01(\tR\rqueryStrategy\x12F\n" +
+	"\tresolvers\x18\x02 \x03(\v2(.ppanel.node.server.v1.PolicyDNSResolverR\tresolvers\"k\n" +
+	"\x14ProtocolUserSnapshot\x12\x1a\n" +
+	"\bprotocol\x18\x01 \x01(\tR\bprotocol\x127\n" +
+	"\x05users\x18\x02 \x03(\v2!.ppanel.node.server.v1.ServerUserR\x05users\"~\n" +
+	"\x10IdentitySnapshot\x12\x1f\n" +
+	"\vsnapshot_id\x18\x01 \x01(\tR\n" +
+	"snapshotId\x12I\n" +
+	"\tprotocols\x18\x02 \x03(\v2+.ppanel.node.server.v1.ProtocolUserSnapshotR\tprotocols\"\x95\x04\n" +
 	"\rRoutingPolicy\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12=\n" +
 	"\toutbounds\x18\x02 \x03(\v2\x1f.ppanel.node.server.v1.OutboundR\toutbounds\x126\n" +
@@ -2491,7 +2866,11 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\x06source\x18\x06 \x01(\tR\x06source\x12(\n" +
 	"\x10source_server_id\x18\a \x01(\x03R\x0esourceServerId\x12'\n" +
 	"\x0fsource_revision\x18\b \x01(\x03R\x0esourceRevision\x12:\n" +
-	"\x19local_transition_revision\x18\t \x01(\x03R\x17localTransitionRevision\"\x8a\x12\n" +
+	"\x19local_transition_revision\x18\t \x01(\x03R\x17localTransitionRevision\x12G\n" +
+	"\ruser_defaults\x18\n" +
+	" \x03(\v2\".ppanel.node.server.v1.UserDefaultR\fuserDefaults\x12?\n" +
+	"\n" +
+	"dns_policy\x18\v \x01(\v2 .ppanel.node.server.v1.DNSPolicyR\tdnsPolicy\"\x8a\x12\n" +
 	"\x0eServerProtocol\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\rR\x04port\x12\x18\n" +
@@ -2570,7 +2949,7 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\x11cert_dns_provider\x18@ \x01(\tR\x0fcertDnsProvider\x12 \n" +
 	"\fcert_dns_env\x18A \x01(\tR\n" +
 	"certDnsEnv\x12!\n" +
-	"\freality_xver\x18B \x01(\rR\vrealityXver\"\xae\x04\n" +
+	"\freality_xver\x18B \x01(\rR\vrealityXver\"\x84\x05\n" +
 	"\x1dQueryServerProtocolConfigData\x128\n" +
 	"\x18traffic_report_threshold\x18\x01 \x01(\x03R\x16trafficReportThreshold\x12#\n" +
 	"\rpush_interval\x18\x02 \x01(\x03R\fpushInterval\x12#\n" +
@@ -2585,7 +2964,8 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\tblock_ips\x18\n" +
 	" \x03(\tR\bblockIps\x12'\n" +
 	"\x0fblock_protocols\x18\v \x03(\tR\x0eblockProtocols\x12>\n" +
-	"\arouting\x18\f \x01(\v2$.ppanel.node.server.v1.RoutingPolicyR\arouting\"\x9b\x01\n" +
+	"\arouting\x18\f \x01(\v2$.ppanel.node.server.v1.RoutingPolicyR\arouting\x12T\n" +
+	"\x11identity_snapshot\x18\r \x01(\v2'.ppanel.node.server.v1.IdentitySnapshotR\x10identitySnapshot\"\x9b\x01\n" +
 	"!QueryServerProtocolConfigResponse\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\rR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12H\n" +
@@ -2609,7 +2989,7 @@ func file_api_server_v1_node_server_proto_rawDescGZIP() []byte {
 }
 
 var file_api_server_v1_node_server_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_api_server_v1_node_server_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_api_server_v1_node_server_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_api_server_v1_node_server_proto_goTypes = []any{
 	(RouteKind)(0),                            // 0: ppanel.node.server.v1.RouteKind
 	(*OnlineUser)(nil),                        // 1: ppanel.node.server.v1.OnlineUser
@@ -2629,12 +3009,17 @@ var file_api_server_v1_node_server_proto_goTypes = []any{
 	(*DNSResolver)(nil),                       // 15: ppanel.node.server.v1.DNSResolver
 	(*Outbound)(nil),                          // 16: ppanel.node.server.v1.Outbound
 	(*RouteRule)(nil),                         // 17: ppanel.node.server.v1.RouteRule
-	(*RoutingPolicy)(nil),                     // 18: ppanel.node.server.v1.RoutingPolicy
-	(*ServerProtocol)(nil),                    // 19: ppanel.node.server.v1.ServerProtocol
-	(*QueryServerProtocolConfigData)(nil),     // 20: ppanel.node.server.v1.QueryServerProtocolConfigData
-	(*QueryServerProtocolConfigResponse)(nil), // 21: ppanel.node.server.v1.QueryServerProtocolConfigResponse
-	(*structpb.Struct)(nil),                   // 22: google.protobuf.Struct
-	(*structpb.Value)(nil),                    // 23: google.protobuf.Value
+	(*UserDefault)(nil),                       // 18: ppanel.node.server.v1.UserDefault
+	(*PolicyDNSResolver)(nil),                 // 19: ppanel.node.server.v1.PolicyDNSResolver
+	(*DNSPolicy)(nil),                         // 20: ppanel.node.server.v1.DNSPolicy
+	(*ProtocolUserSnapshot)(nil),              // 21: ppanel.node.server.v1.ProtocolUserSnapshot
+	(*IdentitySnapshot)(nil),                  // 22: ppanel.node.server.v1.IdentitySnapshot
+	(*RoutingPolicy)(nil),                     // 23: ppanel.node.server.v1.RoutingPolicy
+	(*ServerProtocol)(nil),                    // 24: ppanel.node.server.v1.ServerProtocol
+	(*QueryServerProtocolConfigData)(nil),     // 25: ppanel.node.server.v1.QueryServerProtocolConfigData
+	(*QueryServerProtocolConfigResponse)(nil), // 26: ppanel.node.server.v1.QueryServerProtocolConfigResponse
+	(*structpb.Struct)(nil),                   // 27: google.protobuf.Struct
+	(*structpb.Value)(nil),                    // 28: google.protobuf.Value
 }
 var file_api_server_v1_node_server_proto_depIdxs = []int32{
 	1,  // 0: ppanel.node.server.v1.PushOnlineUsersRequest.users:type_name -> ppanel.node.server.v1.OnlineUser
@@ -2644,25 +3029,31 @@ var file_api_server_v1_node_server_proto_depIdxs = []int32{
 	7,  // 4: ppanel.node.server.v1.PushServerStatusRequest.routing_error:type_name -> ppanel.node.server.v1.RoutingError
 	6,  // 5: ppanel.node.server.v1.RoutingError.identity:type_name -> ppanel.node.server.v1.RoutingIdentity
 	9,  // 6: ppanel.node.server.v1.ServerConfigData.basic:type_name -> ppanel.node.server.v1.ServerBasic
-	22, // 7: ppanel.node.server.v1.ServerConfigData.config:type_name -> google.protobuf.Struct
+	27, // 7: ppanel.node.server.v1.ServerConfigData.config:type_name -> google.protobuf.Struct
 	10, // 8: ppanel.node.server.v1.GetServerConfigResponse.data:type_name -> ppanel.node.server.v1.ServerConfigData
 	12, // 9: ppanel.node.server.v1.ServerUserListData.users:type_name -> ppanel.node.server.v1.ServerUser
 	13, // 10: ppanel.node.server.v1.GetServerUserListResponse.data:type_name -> ppanel.node.server.v1.ServerUserListData
-	23, // 11: ppanel.node.server.v1.Outbound.plugin_options:type_name -> google.protobuf.Value
+	28, // 11: ppanel.node.server.v1.Outbound.plugin_options:type_name -> google.protobuf.Value
 	0,  // 12: ppanel.node.server.v1.RouteRule.kind:type_name -> ppanel.node.server.v1.RouteKind
-	16, // 13: ppanel.node.server.v1.RoutingPolicy.outbounds:type_name -> ppanel.node.server.v1.Outbound
-	17, // 14: ppanel.node.server.v1.RoutingPolicy.rules:type_name -> ppanel.node.server.v1.RouteRule
-	23, // 15: ppanel.node.server.v1.ServerProtocol.plugin_options:type_name -> google.protobuf.Value
-	15, // 16: ppanel.node.server.v1.QueryServerProtocolConfigData.dns:type_name -> ppanel.node.server.v1.DNSResolver
-	16, // 17: ppanel.node.server.v1.QueryServerProtocolConfigData.outbound:type_name -> ppanel.node.server.v1.Outbound
-	19, // 18: ppanel.node.server.v1.QueryServerProtocolConfigData.protocols:type_name -> ppanel.node.server.v1.ServerProtocol
-	18, // 19: ppanel.node.server.v1.QueryServerProtocolConfigData.routing:type_name -> ppanel.node.server.v1.RoutingPolicy
-	20, // 20: ppanel.node.server.v1.QueryServerProtocolConfigResponse.data:type_name -> ppanel.node.server.v1.QueryServerProtocolConfigData
-	21, // [21:21] is the sub-list for method output_type
-	21, // [21:21] is the sub-list for method input_type
-	21, // [21:21] is the sub-list for extension type_name
-	21, // [21:21] is the sub-list for extension extendee
-	0,  // [0:21] is the sub-list for field type_name
+	19, // 13: ppanel.node.server.v1.DNSPolicy.resolvers:type_name -> ppanel.node.server.v1.PolicyDNSResolver
+	12, // 14: ppanel.node.server.v1.ProtocolUserSnapshot.users:type_name -> ppanel.node.server.v1.ServerUser
+	21, // 15: ppanel.node.server.v1.IdentitySnapshot.protocols:type_name -> ppanel.node.server.v1.ProtocolUserSnapshot
+	16, // 16: ppanel.node.server.v1.RoutingPolicy.outbounds:type_name -> ppanel.node.server.v1.Outbound
+	17, // 17: ppanel.node.server.v1.RoutingPolicy.rules:type_name -> ppanel.node.server.v1.RouteRule
+	18, // 18: ppanel.node.server.v1.RoutingPolicy.user_defaults:type_name -> ppanel.node.server.v1.UserDefault
+	20, // 19: ppanel.node.server.v1.RoutingPolicy.dns_policy:type_name -> ppanel.node.server.v1.DNSPolicy
+	28, // 20: ppanel.node.server.v1.ServerProtocol.plugin_options:type_name -> google.protobuf.Value
+	15, // 21: ppanel.node.server.v1.QueryServerProtocolConfigData.dns:type_name -> ppanel.node.server.v1.DNSResolver
+	16, // 22: ppanel.node.server.v1.QueryServerProtocolConfigData.outbound:type_name -> ppanel.node.server.v1.Outbound
+	24, // 23: ppanel.node.server.v1.QueryServerProtocolConfigData.protocols:type_name -> ppanel.node.server.v1.ServerProtocol
+	23, // 24: ppanel.node.server.v1.QueryServerProtocolConfigData.routing:type_name -> ppanel.node.server.v1.RoutingPolicy
+	22, // 25: ppanel.node.server.v1.QueryServerProtocolConfigData.identity_snapshot:type_name -> ppanel.node.server.v1.IdentitySnapshot
+	25, // 26: ppanel.node.server.v1.QueryServerProtocolConfigResponse.data:type_name -> ppanel.node.server.v1.QueryServerProtocolConfigData
+	27, // [27:27] is the sub-list for method output_type
+	27, // [27:27] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_api_server_v1_node_server_proto_init() }
@@ -2677,7 +3068,7 @@ func file_api_server_v1_node_server_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_server_v1_node_server_proto_rawDesc), len(file_api_server_v1_node_server_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   21,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

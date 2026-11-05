@@ -1,14 +1,18 @@
-# Ordered node routing v1 — cutover-only
+# Ordered node routing — v1 and v2
 
-This node requires a complete ordered routing v1 policy in every JSON or
+This node requires a complete ordered routing v1 or v2 policy in every JSON or
 protobuf configuration response. Missing/null routing, unknown versions or
 kinds, unknown/duplicate/case-variant JSON fields, missing `enabled`, invalid
 references and mixed legacy fields fail closed. Reserved legacy `block`,
 `block_ips`, `block_protocols`, `outbound` and embedded matching fields are
-never compiled. New nodes do **not** support old panels: upgrade backend, node
-and frontend together in a coordinated stop-the-world cutover.
+never compiled. The original legacy-to-v1 database cutover remains a separate
+migration. Adding v2 does not repeat it: update the backend/admin, upgrade all
+affected nodes, then enable v2. A 426 response does not stop an old node's
+already-running policy.
 
-Every configuration request carries `X-PPanel-Routing-Version: 1`. The
+Configuration requests prefer `X-PPanel-Routing-Version: 2`. A panel that only
+accepts the literal v1 header receives one bounded v1 retry; a v2 policy must
+still reject v1 rather than strip its conditions. The
 `protocols` JSON field must be present: `null` and `[]` both mean zero
 protocols; missing or another type is invalid. Protobuf repeated protocols are
 empty when absent. In both wires `total` must equal the number of protocols,
@@ -24,12 +28,13 @@ protocols are not started.
 Built-in `direct`/`block` map to the Xray `Default`/`block` tags. Custom
 `ob_<UUIDv4>` IDs use a distinct stable tag namespace. The explicit
 `default_outbound_id` determines Xray's first outbound. The UDP/53 system
-rule stays first; each enabled business row becomes one single-kind rule in
+rule precedes business rules; explicit v2 resolver-tag rules precede that
+system rule to prevent DNS recursion. Each enabled business row becomes one single-kind rule in
 array order. Disabled rows still undergo full format, budget and reference
 validation. Xray's existing private-destination freedom security boundary is
 not weakened by the builder.
 
-Domain strategy remains `AsIs`: domain rules use the original or sniffed
+In v1, domain strategy remains `AsIs`: domain rules use the original or sniffed
 domain, while IP rules use the target IP already in the routing context.
 Values normalize to exact `full:`, `keyword:`, suffix `domain:`, RE2 `regexp:`,
 `geosite:`, IP/CIDR, `geoip:` or the recognized `bittorrent` protocol. Raw and
@@ -78,9 +83,42 @@ no explicit fallback HTTP timeout and retains discovered fallback paths. A
 hostile REALITY fallback server remains a separate upstream memory/availability
 risk; use trusted targets until that implementation is bounded.
 
-## Node DNS
+## User routing and chains (v2)
 
-Node DNS supports **classic UDP only**. `proto` is normalized by trimming and
+`rules[].user_ids` selects panel account IDs; an omitted/empty list means all
+users. Account alternatives are OR, combined with the single destination kind
+using AND. The backend expands authorized subscriptions in an `identity_snapshot`
+paired with the policy. Empty expansion skips that account rule, never turns it
+into a global rule. Authentication/statistics continue using `inboundTag|UUID`,
+not the login email. `user_defaults` chooses an outbound only after routing is
+fully unmatched, and does not override existing explicit direct exceptions.
+
+V2 uses `IPIfNonMatch`. When enabled IP conditions exist, permitted domain
+targets are re-evaluated with resolved addresses and pinned before dialing.
+Clearing the account selector to “all users” does not disable IP checks. Ordered
+explicit domain exceptions retain their precedence; mixed answers cannot evade
+a block by selecting another address. DNS failure closes the request where IP
+checks are required. No extra hardcoded private/CN rule is inserted, and v1 is
+unchanged.
+
+`via_outbound_id` on B selects a front hop A: node → A → B → destination. Stable
+IDs, missing references, self/cyclic references and referenced deletion are
+validated. Existing raw `sockopt.dialerProxy` references to `routing_<ob_id>`
+join the same graph; `Default` and `block` are built-in terminals. A nonempty
+raw reference cannot coexist with a structured predecessor. Other legitimate
+raw settings retain their behavior. Each hop must support the required network;
+SOCKS→SOCKS TCP/UDP is tested, while HTTP CONNECT cannot carry UDP. Failure never
+bypasses a hop or switches to an unconfigured direct/backup outbound.
+
+The config response includes per-protocol subscription identities and a
+`snapshot_id`. V2 does not independently mutate users via the legacy user-list
+poller. A changed candidate applies identities, limits, routes and DNS together;
+unchanged responses do not reload. Applied/pending/error identities include the
+snapshot ID, so a routing revision alone does not establish user synchronization.
+
+## Legacy node DNS
+
+Without `routing.dns_policy`, node DNS supports **classic UDP only**. `proto` is normalized by trimming and
 lowercasing: empty and `udp` mean canonical `udp`; `tcp`, `tls`, `https`,
 `quic` and all other values are rejected. `server_name` must be exactly empty;
 there is no DNS-over-TLS SNI support. `address` is an ASCII hostname (IDNA
@@ -101,10 +139,38 @@ UDP/53 system behavior; the chosen business default/outbounds must permit the
 resolver to be reached. Invalid DNS candidates are rejected before core and
 listener cutover, without advancing ETag or applied status.
 
+## Explicit DNS policy (v2)
+
+An optional `routing.dns_policy` contains `query_strategy` (`UseIP`, `UseIPv4`,
+`UseIPv6`) and ordered resolvers (`id`, `protocol`, `address`, `domains`,
+`outbound_id`, optional `bootstrap_ip`). UDP, TCP and HTTPS/DoH are supported;
+the last resolver has an empty domain list and is the default. The first match
+is final: failures do not try the next resolver, system DNS or another outbound.
+The existing legacy DNS values remain stored for switching back.
+
+Resolver-hostname bootstrap and the DNS question family are independent: an
+AAAA-only resolver can use an IPv4 bootstrap connection. The original DoH host
+is retained for TLS verification. Actual resolver/proxy-hostname dependency
+cycles are rejected using the node's domain data; use an explicit bootstrap IP
+or a separate resolver to break a cycle. Explicit DNS does not add the system
+localhost resolver or accept `+local` bypass modes. Proxy-server hostnames use
+the core resolver without implicit OS-DNS fallback; raw address-port SRV/TXT
+lookups conflict with this policy.
+
+This governs the node DNS feature and its DNS outbound, not client-local DNS or
+per-user resolver selection. The selected DNS outbound is independent of user
+default outbounds. Remote proxy resolution that remains outside this feature is
+controlled by that upstream, not claimed as local DNS policy enforcement.
+
 ## Candidate ownership and status
 
 Observations, pending candidates and applied configurations are separate. The
-latest observation survives an A→B→A race while B is starting. Only a new core
+latest observation survives an A→B→A race while B is starting. Candidates are
+compiled and listeners prepared without creating a second active core; Xray's
+process-global dialer must not be replaced while old traffic is active. Old
+listeners and flows are quiesced before core creation, and rollback reinstalls
+the old dialer before restarting listeners. Applied changes close old flows;
+traffic reports remain queued across the switch. Only a new core
 and all required listeners successfully starting commit ETag/hash/applied;
 304 and identical bodies never discard an outstanding candidate. Bad
 candidates retry with bounded backoff, newer candidates replace them, and a
@@ -136,8 +202,11 @@ captures the state, allocates its sequence and checks the client generation;
 retired clients and their certificate heartbeats cannot publish over a newer
 applied generation, even when the API host or secret changed. An older request
 already in flight retains its lower sequence. `RoutingIdentity` uses tags 1–5
-for mode/source/source_server_id/source_revision/local_transition_revision;
-`RoutingError` uses identity/stage/message at 1–3. The status stage vocabulary
+for mode/source/source_server_id/source_revision/local_transition_revision,
+with v2 `snapshot_id` at tag 6. Delivery `identity_snapshot` is tag 13;
+`RouteRule.user_ids`, `Outbound.via_outbound_id`, and routing `user_defaults` /
+`dns_policy` append tags 7, 45, and 10/11 respectively. `RoutingError` uses
+identity/stage/message at 1–3. The status stage vocabulary
 is `fetch`, `validate`, `build`, `core_start`, `prepare`, `stop`, `bind`,
 `restore`; local config and monitor failures map to `validate` and `prepare`
 respectively, matching the backend's currently accepted values. Server status

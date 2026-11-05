@@ -35,14 +35,15 @@ type socksRouteEvidence struct {
 }
 
 type controlledSOCKSServer struct {
-	tcp          net.Listener
-	udp          net.PacketConn
-	evidence     chan socksRouteEvidence
-	done         chan struct{}
-	closeOnce    sync.Once
-	mu           sync.Mutex
-	conns        map[net.Conn]struct{}
-	relayAddress string
+	tcp             net.Listener
+	udp             net.PacketConn
+	evidence        chan socksRouteEvidence
+	done            chan struct{}
+	closeOnce       sync.Once
+	mu              sync.Mutex
+	conns           map[net.Conn]struct{}
+	relayAddress    string
+	udpRelayAddress string
 }
 
 func startControlledSOCKSServer(t *testing.T) *controlledSOCKSServer {
@@ -193,6 +194,31 @@ func (s *controlledSOCKSServer) serveUDP() {
 			continue
 		}
 		s.record(socksRouteEvidence{transport: "udp-datagram", command: 3, host: host, port: port})
+		s.mu.Lock()
+		forward := s.udpRelayAddress
+		s.mu.Unlock()
+		if forward != "" {
+			_, _, consumed, _ := parseSOCKSAddress(packet[3:n])
+			header := append([]byte(nil), packet[:3+consumed]...)
+			payload := append([]byte(nil), packet[3+consumed:n]...)
+			go func() {
+				conn, err := net.DialTimeout("udp", forward, time.Second)
+				if err != nil {
+					return
+				}
+				defer conn.Close()
+				_ = conn.SetDeadline(time.Now().Add(time.Second))
+				if _, err = conn.Write(payload); err != nil {
+					return
+				}
+				buf := make([]byte, 64*1024)
+				m, err := conn.Read(buf)
+				if err == nil {
+					_, _ = s.udp.WriteTo(append(header, buf[:m]...), client)
+				}
+			}()
+			continue
+		}
 		_, _ = s.udp.WriteTo(packet[:n], client)
 	}
 }

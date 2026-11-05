@@ -70,7 +70,7 @@ func TestOrderedCandidateRetryReplacementAndZeroProtocolStatus(t *testing.T) {
 	}
 	oldNodes, oldCore := nodes, x
 	mu.Lock()
-	revision, version = 2, 2
+	revision, version = 2, 3
 	mu.Unlock()
 	for i := 0; i < 2; i++ {
 		if _, err := reload(path, &nodes, &x, nil); err == nil || !strings.Contains(err.Error(), "version") {
