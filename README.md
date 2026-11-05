@@ -85,11 +85,16 @@ GOTOOLCHAIN=go1.27.1 GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -trimpath 
 GOTOOLCHAIN=go1.27.1 go test ./api/panel -run '^$' -bench BenchmarkDecodeUserList -benchmem
 ```
 
-## 路由升级：仅支持 ordered-v1
+## 路由升级：ordered v1/v2
 
-此版本要求面板始终下发完整 ordered routing v1；旧版节点路由响应将被拒绝，不再兼容旧面板。
-backend、节点和 frontend 须同批停机升级并验证后再启用。协议、状态回执及容量约束见
+此版本要求面板下发完整 ordered routing v1 或 v2；旧版节点路由响应将被拒绝。启用 v2 前须确认所有受影响节点已升级并报告 v2 能力。协议、状态回执及容量约束见
 [有序节点路由说明](docs/structured-route-rules.md)。
+
+## 在线设备限制
+
+先升级 backend，再升级 node。有限额订阅的新来源 IP 通过 `/v1/server/device` 原子申请全局名额；失败时拒绝新设备，不回退到本地计数。设备按订阅 ID 和规范化来源 IP 计数，TCP/UDP、跨协议和跨节点同一 IP 共用名额，NAT 用户共享公网 IP 亦合并计数。`device_limit = 0` 不限设备；无法取得来源 IP 时，不阻断未限额用户，但有限额用户必须拒绝。
+
+在线心跳独立于流量上报，间隔不超过 60 秒；持续连接续期，短连接至少报告一次。关闭连接后停止续期，租约最终过期（backend 当前为 5 分钟）。v2 身份从配置快照获取，不进行独立用户轮询；v1 保持独立用户轮询和失败重试。在线数量接口故障不会阻断启动或身份更新，有限额准入仍依赖 backend。
 
 ## 流量与重载
 
@@ -107,6 +112,8 @@ backend、节点和 frontend 须同批停机升级并验证后再启用。协议
 内核固定在 `wyx2685/xray-core` 的 `83ad74c46335`
 （`v0.0.0-20260828071630-83ad74c46335`）。
 
+- 构建默认禁用 MPTCP（`godebug multipathtcp=0`），覆盖 Go 默认 TCP 监听；不要通过 GODEBUG 或 `sockopt.tcpMptcp` 重新启用，并更新宿主机内核。
+- 使用新版 `FinalMask.ListenPacket` 和 SS2022 16/32 字节密钥要求。
 - TUIC 入站使用新的原生 QUIC 传输；上游 TUIC 出站转发和拨号器尚未实现，
   节点会在校验时明确拒绝 TUIC 出站及其出站传输配置，避免误报 applied。
 - TUIC 传输模块包含项目内兼容修复，处理认证与首个请求并发时丢失请求的问题，

@@ -13,8 +13,8 @@ import (
 )
 
 type OnlineUser struct {
-	UID int
-	IP  string
+	UID int    `json:"uid"`
+	IP  string `json:"ip"`
 }
 
 // InboundTag matches the controller tag used for authentication and accounting.
@@ -145,29 +145,6 @@ func (c *NodeClient) getUserListProtobuf(ctx context.Context) ([]UserInfo, error
 // CommitUserList advances the conditional request only after the candidate is applied.
 func (c *NodeClient) CommitUserList() {
 	c.userEtag = c.pendingUserEtag
-}
-
-func (c *NodeClient) GetUserAlive() (map[int]int, error) {
-	c.AliveMap = &AliveMap{}
-	c.AliveMap.Alive = make(map[int]int)
-	/*const path = "/v1/server/alivelist"
-	r, err := c.client.R().
-		ForceContentType("application/json").
-		Get(path)
-	if err != nil || r.StatusCode() >= 399 {
-		c.AliveMap.Alive = make(map[int]int)
-	}
-	if r == nil || r.RawResponse == nil {
-		fmt.Printf("received nil response or raw response")
-		c.AliveMap.Alive = make(map[int]int)
-	}
-	defer r.RawResponse.Body.Close()
-	if err := json.Unmarshal(r.Body(), c.AliveMap); err != nil {
-		//fmt.Printf("unmarshal user alive list error: %s", err)
-		c.AliveMap.Alive = make(map[int]int)
-	}
-	*/
-	return c.AliveMap.Alive, nil
 }
 
 type ServerPushUserTrafficRequest struct {

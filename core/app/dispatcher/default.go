@@ -238,9 +238,7 @@ func (d *DefaultDispatcher) getLink(ctx context.Context, network net.Network) (*
 			return nil, nil, nil, errors.New("get limiter ", sessionInbound.Tag, " error: ", err)
 		}
 		// Speed Limit and Device Limit
-		w, reject := limit.CheckLimit(user.Email,
-			sessionInbound.Source.Address.IP().String(),
-			sessionInbound.Source.Network == net.Network_TCP)
+		w, release, reject := limit.Acquire(ctx, user.Email, sourceIP(sessionInbound.Source.Address))
 		if reject {
 			errors.LogInfo(ctx, "Limited ", user.Email, " by conn or ip")
 			common.Close(outboundLink.Writer)
@@ -254,6 +252,7 @@ func (d *DefaultDispatcher) getLink(ctx context.Context, network net.Network) (*
 		managedWriter := &ManagedWriter{
 			writer:  uplinkWriter,
 			manager: lm,
+			release: release,
 		}
 		lm.AddLink(managedWriter, outboundLink.Reader)
 		inboundLink.Writer = managedWriter
@@ -278,6 +277,13 @@ func (d *DefaultDispatcher) getLink(ctx context.Context, network net.Network) (*
 	}
 
 	return inboundLink, outboundLink, limit, nil
+}
+
+func sourceIP(address net.Address) string {
+	if address == nil || !address.Family().IsIP() {
+		return ""
+	}
+	return address.IP().String()
 }
 
 func (d *DefaultDispatcher) shouldOverride(ctx context.Context, result SniffResult, request session.SniffingRequest, destination net.Destination) bool {
@@ -409,9 +415,7 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 			return errors.New("get limiter ", sessionInbound.Tag, " error: ", err)
 		}
 		// Speed Limit and Device Limit
-		w, reject := limit.CheckLimit(user.Email,
-			sessionInbound.Source.Address.IP().String(),
-			sessionInbound.Source.Network == net.Network_TCP)
+		w, release, reject := limit.Acquire(ctx, user.Email, sourceIP(sessionInbound.Source.Address))
 		if reject {
 			errors.LogInfo(ctx, "Limited ", user.Email, " by conn or ip")
 			common.Close(outbound.Writer)
@@ -423,6 +427,7 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 		managedWriter := &ManagedWriter{
 			writer:  outbound.Writer,
 			manager: lm,
+			release: release,
 		}
 		outbound.Writer = managedWriter
 		if w != nil {

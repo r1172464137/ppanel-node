@@ -59,7 +59,7 @@ func TestAuthenticatedUserRoutingAcrossSupportedInbounds(t *testing.T) {
 				target := xnet.TCPDestination(xnet.ParseAddress("203.0.113.42"), 443)
 				var conn io.ReadWriteCloser
 				if name == "tuic" {
-					conn = dialTUIC(t, ctx, port, target)
+					conn = dialTUIC(t, ctx, port, target, false)
 				} else {
 					var err error
 					conn, err = xray.Dial(ctx, client, target)

@@ -30,6 +30,16 @@ func (c *Controller) startTasks(node *panel.NodeInfo) error {
 		}
 		logx.Node(c.tag).Info("用户列表监控任务已启动")
 	}
+	// Lease renewals are independent of traffic retries in both v1 and v2.
+	c.onlinePeriodic = &task.Task{Name: "reportOnline", Interval: time.Duration(min(max(node.PushInterval, 1), 60)) * time.Second, Execute: c.heartbeat}
+	if err := c.onlinePeriodic.Start(false); err != nil {
+		if c.userListMonitorPeriodic != nil {
+			c.userListMonitorPeriodic.Close()
+			c.userListMonitorPeriodic = nil
+		}
+		c.onlinePeriodic = nil
+		return fmt.Errorf("start online monitor: %w", err)
+	}
 	if usesTLSCertificate(node) {
 		switch node.Protocol.CertMode {
 		case "none", "", "file", "self":
@@ -48,6 +58,8 @@ func (c *Controller) startTasks(node *panel.NodeInfo) error {
 					c.userListMonitorPeriodic = nil
 				}
 				c.renewCertPeriodic = nil
+				c.onlinePeriodic.Close()
+				c.onlinePeriodic = nil
 				return fmt.Errorf("start certificate renewal: %w", err)
 			}
 		}
@@ -77,16 +89,6 @@ func (c *Controller) userListMonitor(ctx context.Context) (err error) {
 	if err != nil {
 		logx.Node(c.tag).WithError(err).Error("获取用户列表失败")
 		return nil
-	}
-	// get user alive
-	newA, err := c.apiClient.GetUserAlive()
-	if err != nil {
-		logx.Node(c.tag).WithError(err).Error("获取在线列表失败")
-		return nil
-	}
-	// update alive list
-	if newA != nil {
-		c.limiter.SetAliveList(newA)
 	}
 	// update user list
 	// newU == nil indicates 304 Not Modified; empty slice means the list is empty
@@ -181,35 +183,38 @@ func (c *Controller) requestUserReload() {
 	}
 }
 
-func (c *Controller) reportOnlineAndStatus(ctx context.Context, userTraffic []panel.UserTraffic) (err error) {
-	if onlineDevice, err := c.limiter.GetOnlineDevice(); err != nil {
-		logx.Node(c.tag).WithError(err).Error("获取在线设备失败")
-	} else if len(*onlineDevice) > 0 {
-		// Only report user has traffic > 100kb to allow ping test
-		var result []panel.OnlineUser
-		var nocountUID = make(map[int]struct{})
-		for _, traffic := range userTraffic {
-			total := traffic.Upload + traffic.Download
-			if total <= 0 {
-				nocountUID[traffic.UID] = struct{}{}
-			}
-		}
-		for _, online := range *onlineDevice {
-			if _, ok := nocountUID[online.UID]; !ok {
-				result = append(result, online)
-			}
-		}
-		if err = c.apiClient.ReportNodeOnlineUsers(ctx, &result); err != nil {
-			logx.Node(c.tag).WithError(err).Error("上报在线用户失败")
-		} else {
-			logx.Node(c.tag).WithFields(map[string]interface{}{
-				"online_total":    len(*onlineDevice),
-				"online_reported": len(result),
-			}).Info("已上报在线用户")
-		}
+// Counts are advisory; refresh them separately so an unavailable endpoint
+// cannot delay v1 identity changes or the transactional ETag commit.
+func (c *Controller) refreshAlive(ctx context.Context) {
+	alive, err := c.apiClient.GetUserAlive(ctx)
+	if err != nil {
+		logx.Node(c.tag).WithError(err).Error("获取在线列表失败")
+	} else if alive != nil {
+		c.limiter.UpdateAliveList(alive)
 	}
+}
 
-	userTraffic = nil
+func (c *Controller) heartbeat(ctx context.Context) error {
+	err := c.reportOnline(ctx)
+	if ctx.Err() == nil {
+		c.refreshAlive(ctx)
+	}
+	return err
+}
+
+func (c *Controller) reportOnline(ctx context.Context) error {
+	online, err := c.limiter.GetOnlineDevice()
+	if err != nil {
+		return err
+	}
+	for start := 0; start < len(*online); start += 10000 {
+		batch := (*online)[start:min(start+10000, len(*online))]
+		sentAt := time.Now()
+		if err := c.apiClient.ReportNodeOnlineUsers(ctx, &batch); err != nil {
+			return err
+		}
+		c.limiter.OnlineReportAcknowledged(batch, sentAt)
+	}
 	return nil
 }
 

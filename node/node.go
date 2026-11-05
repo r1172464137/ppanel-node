@@ -159,22 +159,13 @@ func (n *Node) Start() error {
 }
 
 func (n *Node) report(ctx context.Context) error {
-	snapshots := make(map[*Controller][]panel.UserTraffic)
 	for _, c := range n.controllers {
 		if c.started.Load() {
-			snapshots[c] = c.collectTraffic(max(c.info.TrafficReportThreshold, 0))
+			c.collectTraffic(max(c.info.TrafficReportThreshold, 0))
 		}
 	}
 	// Traffic ACKs take priority over online/status calls, which may time out.
 	result := n.traffic.report(ctx)
-	for _, c := range n.controllers {
-		if ctx.Err() != nil {
-			return errors.Join(result, ctx.Err())
-		}
-		if c.started.Load() {
-			_ = c.reportOnlineAndStatus(ctx, snapshots[c])
-		}
-	}
 	// Certificate-pin reports are the only protocol-specific statuses. The
 	// independent server reporter remains alive through stop/restore failures.
 	if n.statusClient != nil && ctx.Err() == nil {

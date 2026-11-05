@@ -17,6 +17,10 @@ import (
 func TestFailedPartialUserUpdateRestoresAndRetries(t *testing.T) {
 	var phase atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/server/alivelist" {
+			fmt.Fprint(w, `{"alive":{}}`)
+			return
+		}
 		if phase.Load() == 0 {
 			w.Header().Set("ETag", "old")
 			fmt.Fprint(w, `{"users":[{"id":1,"uuid":"00000000-0000-0000-0000-000000000001"}]}`)
