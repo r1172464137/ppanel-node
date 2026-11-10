@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
+	xrayDNS "github.com/xtls/xray-core/app/dns"
 	xnet "github.com/xtls/xray-core/common/net"
 )
 
@@ -129,5 +130,40 @@ func TestDNSDomainRulesRemainCanonical(t *testing.T) {
 	}
 	if got := len(built.DNS.NameServer[1].Domain); got != 2 {
 		t.Fatalf("compiled DNS domains=%d", got)
+	}
+}
+
+func TestDNSQueryStrategyUsesSupportedValues(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		hasIPv6  bool
+		strategy string
+		want     xrayDNS.QueryStrategy
+	}{
+		{"dual-stack-default", true, "", xrayDNS.QueryStrategy_USE_IP},
+		{"dual-stack-prefer-ipv4", true, "prefer_ipv4", xrayDNS.QueryStrategy_USE_IP},
+		{"dual-stack-prefer-ipv6", true, "prefer_ipv6", xrayDNS.QueryStrategy_USE_IP},
+		{"ipv4-only-default", false, "", xrayDNS.QueryStrategy_USE_IP4},
+		{"ipv4-only-prefer-ipv6", false, "prefer_ipv6", xrayDNS.QueryStrategy_USE_IP4},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := orderedFixture()
+			cfg.Data.IPStrategy = test.strategy
+			cfg.Data.DNS = &[]panel.DNSItem{{Address: "1.1.1.1"}}
+			built, err := Build(cfg, test.hasIPv6)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if built.DNS.QueryStrategy != test.want {
+				t.Fatalf("global DNS strategy = %v, want %v", built.DNS.QueryStrategy, test.want)
+			}
+			// Resolver 0 is the inherited localhost fallback; an unset per-server
+			// strategy follows the global value above. Custom resolvers are explicit.
+			for i, server := range built.DNS.NameServer[1:] {
+				if server.QueryStrategy != test.want {
+					t.Fatalf("resolver %d strategy = %v, want %v", i+1, server.QueryStrategy, test.want)
+				}
+			}
+		})
 	}
 }

@@ -36,32 +36,23 @@ func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult
 	return buildOrdered(serverconfig, hasIPv6)
 }
 
+// dnsQueryStrategy returns an Xray DNS query strategy, not a transport dial
+// strategy. UseIPv4v6/UseIPv6v4 are not recognized by Xray's DNS config and
+// silently become UseIP, so family preference is applied after resolution.
+func dnsQueryStrategy(hasIPv6 bool) string {
+	if hasIPv6 {
+		return "UseIP"
+	}
+	return "UseIPv4"
+}
+
 // buildBase builds only DNS, the built-in connections and the UDP/53 rule.
 func buildBase(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult, error) {
-	var ipStrategy string
-	if serverconfig.Data.IPStrategy != "" {
-		switch serverconfig.Data.IPStrategy {
-		case "prefer_ipv4":
-			ipStrategy = "UseIPv4v6"
-		case "prefer_ipv6":
-			ipStrategy = "UseIPv6v4"
-		default:
-			ipStrategy = "UseIPv4v6"
-		}
-	} else {
-		if hasIPv6 {
-			ipStrategy = "UseIPv4v6"
-		} else {
-			ipStrategy = "UseIPv4"
-		}
-	}
+	queryStrategy := dnsQueryStrategy(hasIPv6)
+	ipStrategy := queryStrategy
 	dnsConfig := serverconfig.Data.DNS
 
 	//default dns
-	queryStrategy := "UseIPv4v6"
-	if !hasIPv6 {
-		queryStrategy = "UseIPv4"
-	}
 	coreDnsConfig := &coreConf.DNSConfig{
 		Servers: []*coreConf.NameServerConfig{
 			{
@@ -90,7 +81,8 @@ func buildBase(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildRe
 		}
 	}
 
-	// Built-in outbounds retain the existing Freedom safety settings.
+	// Built-in outbounds retain the existing Freedom safety settings. This is a
+	// transport dial strategy, where UseIPv4v6 is supported and intentional.
 	strategy := "UseIPv4v6"
 	if serverconfig.Data.Routing != nil && serverconfig.Data.Routing.DNSPolicy != nil {
 		strategy = "ForceIPv4v6"

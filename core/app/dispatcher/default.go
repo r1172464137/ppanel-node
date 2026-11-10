@@ -112,6 +112,7 @@ type DefaultDispatcher struct {
 	dnsTargets       map[string]DNSRouteTarget
 	blockedOutbounds map[string]bool
 	guardIPRules     bool
+	ipStrategy       string
 	dispatchMu       sync.Mutex
 	dispatches       sync.WaitGroup
 	activeDispatches map[uint64]activeDispatch

@@ -404,6 +404,7 @@ func newCoreInstance(config *core.Config, serverconfig *panel.ServerConfigRespon
 		return nil, fmt.Errorf("create Xray instance: %w", err)
 	}
 	dispatch := server.GetFeature(routing.DispatcherType()).(*dispatcher.DefaultDispatcher)
+	dispatch.SetIPStrategy(serverconfig.Data.IPStrategy)
 	if p := serverconfig.Data.Routing; p != nil && p.Version == 2 {
 		blocked := map[string]bool{"block": true}
 		hasIPRules := false
