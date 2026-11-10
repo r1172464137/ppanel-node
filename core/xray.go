@@ -37,6 +37,43 @@ type AddUsersParams struct {
 	*panel.NodeInfo
 }
 
+// LiveGate serializes a reload switch with tasks that mutate the live core.
+// Acquisition is context-aware so stopping a task can always unblock it.
+type LiveGate struct {
+	token chan struct{}
+}
+
+func newLiveGate() *LiveGate {
+	gate := &LiveGate{token: make(chan struct{}, 1)}
+	gate.token <- struct{}{}
+	return gate
+}
+
+func (g *LiveGate) Lock(ctx context.Context) error {
+	if g == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-g.token:
+		return nil
+	}
+}
+
+func (g *LiveGate) Unlock() {
+	if g == nil {
+		return
+	}
+	select {
+	case g.token <- struct{}{}:
+	default:
+	}
+}
+
 type XrayCore struct {
 	Config                      *conf.Conf
 	Client                      *panel.ServerClient
@@ -44,6 +81,7 @@ type XrayCore struct {
 	serverConfigMonitorPeriodic *task.Task
 	monitorMu                   sync.Mutex
 	lastSignaledCandidate       string
+	liveGate                    *LiveGate
 	access                      sync.Mutex
 	failedClosed                atomic.Bool
 	Server                      *core.Instance
@@ -65,11 +103,39 @@ func New(config *conf.Conf, client *panel.ServerClient) *XrayCore {
 		Config:         config,
 		Client:         client,
 		LimiterManager: limiter.NewManager(),
+		liveGate:       newLiveGate(),
 		users: &UserMap{
 			uidMap: make(map[string]int),
 		},
 	}
 	return core
+}
+
+// ShareLiveGate makes a prepared generation use the same live-core lock as the
+// generation it will replace, so their tasks cannot overlap a switch.
+func (v *XrayCore) ShareLiveGate(old *XrayCore) {
+	if v == nil {
+		return
+	}
+	if old != nil && old.liveGate != nil {
+		v.liveGate = old.liveGate
+	} else if v.liveGate == nil {
+		v.liveGate = newLiveGate()
+	}
+}
+
+// LockLive blocks tasks that mutate the live core until the switch completes.
+func (v *XrayCore) LockLive(ctx context.Context) error {
+	if v == nil {
+		return nil
+	}
+	return v.liveGate.Lock(ctx)
+}
+
+func (v *XrayCore) UnlockLive() {
+	if v != nil {
+		v.liveGate.Unlock()
+	}
 }
 
 // Start retains the existing standalone behavior. Reload prepares a core
@@ -176,18 +242,8 @@ func (v *XrayCore) start(serverconfig *panel.ServerConfigResponse, monitor bool)
 	return nil
 }
 
-// FailClosed stops the running core when an inbound cannot be safely restored.
-// The existing reload path may replace it, but it must never be restarted in place.
-func (v *XrayCore) FailClosed() error {
-	v.access.Lock()
-	defer v.access.Unlock()
-	if v.failedClosed.Swap(true) {
-		return nil
-	}
-	if v.Client != nil {
-		v.Client.InvalidateApplied()
-		v.Client.RecordFailure(nil, panel.StageRestore)
-	}
+func (v *XrayCore) forceCloseLocked() error {
+	v.failedClosed.Store(true)
 	if v.Server == nil {
 		return nil
 	}
@@ -201,7 +257,38 @@ func (v *XrayCore) FailClosed() error {
 	return err
 }
 
-func (v *XrayCore) FailedClosed() bool { return v.failedClosed.Load() }
+// FailClosed stops the running core when an inbound cannot be safely restored.
+// The existing reload path may replace it, but it must never be restarted in place.
+func (v *XrayCore) FailClosed() error {
+	if v == nil {
+		return nil
+	}
+	v.access.Lock()
+	defer v.access.Unlock()
+	if v.failedClosed.Swap(true) {
+		return nil
+	}
+	if v.Client != nil {
+		v.Client.InvalidateApplied()
+		v.Client.RecordFailure(nil, panel.StageRestore)
+	}
+	return v.forceCloseLocked()
+}
+
+// ForceClose releases every socket held by a generation after rollback failed.
+// It does not report status so the caller can preserve the candidate failure.
+func (v *XrayCore) ForceClose() error {
+	if v == nil {
+		return nil
+	}
+	v.access.Lock()
+	defer v.access.Unlock()
+	return v.forceCloseLocked()
+}
+
+func (v *XrayCore) FailedClosed() bool {
+	return v != nil && v.failedClosed.Load()
+}
 
 func (v *XrayCore) Activate(serverconfig *panel.ServerConfigResponse) error {
 	v.access.Lock()

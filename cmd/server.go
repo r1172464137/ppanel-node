@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,8 +21,9 @@ import (
 )
 
 var (
-	config string
-	watch  bool
+	config   string
+	watch    bool
+	reloadMu sync.Mutex
 )
 
 var serverCommand = cobra.Command{
@@ -168,6 +170,8 @@ func serverHandle(_ *cobra.Command, _ []string) {
 }
 
 func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *logx.Handle) (*logx.Handle, error) {
+	reloadMu.Lock()
+	defer reloadMu.Unlock()
 	// Preserve old reload channel so new core continues to receive signals
 	var oldReloadCh chan struct{}
 	if xcore != nil && *xcore != nil {
@@ -237,6 +241,7 @@ func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *
 
 	oldNodes := *nodes
 	oldCore := *xcore
+	newCore.ShareLiveGate(oldCore)
 	newNodes.InheritTraffic(oldNodes)
 	restore := func(stage string, cause error) (*logx.Handle, error) {
 		p.RecordFailure(serverconfig, panel.StageForOperation(stage))
@@ -252,6 +257,20 @@ func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *
 		}
 		restored, err := restorePrevious(stage, cause, cleanup, restart)
 		if !restored {
+			// A failed rollback must not leave either generation holding sockets.
+			// Fence the old core, close its listeners and retain the separate
+			// candidate failure for the next reload/status report.
+			if oldCore != nil {
+				if closeErr := oldCore.ForceClose(); closeErr != nil {
+					logx.Component("server").WithError(closeErr).Error("关闭回滚失败的核心失败")
+				}
+			}
+			if oldNodes != nil {
+				oldNodes.Close()
+			}
+			if oldCore != nil {
+				_ = oldCore.Close()
+			}
 			p.InvalidateApplied()
 			p.RecordFailure(serverconfig, panel.StageRestore)
 			if oldCore != nil && oldCore.Client != nil && oldCore.Client != p {
@@ -268,6 +287,12 @@ func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *
 			return restore("stop", err)
 		}
 	}
+	// Stop has joined any in-flight user/certificate task. From here through
+	// commit/rollback the live core is exclusively owned by this reload.
+	if err := newCore.LockLive(context.Background()); err != nil {
+		return logHandle, err
+	}
+	defer newCore.UnlockLive()
 	if oldCore != nil {
 		oldCore.Quiesce()
 		if oldNodes != nil {

@@ -49,7 +49,7 @@ func (c *NodeClient) GetUserList(ctx context.Context) ([]UserInfo, error) {
 	const p = "/v1/server/user"
 	r, err := c.Client.R().
 		SetContext(ctx).
-		SetHeader("If-None-Match", c.userEtag).
+		SetHeader("If-None-Match", c.candidateUserEtag()).
 		ForceContentType("application/json").
 		SetDoNotParseResponse(true).
 		Get(p)
@@ -73,7 +73,7 @@ func (c *NodeClient) GetUserList(ctx context.Context) ([]UserInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.pendingUserEtag = r.Header().Get("ETag")
+	c.setPendingUserEtag(r.Header().Get("ETag"))
 	return users, nil
 }
 
@@ -103,7 +103,7 @@ func (c *NodeClient) getUserListProtobuf(ctx context.Context) ([]UserInfo, error
 	const p = "/v1/server/user"
 	r, err := c.Client.R().
 		SetContext(ctx).
-		SetHeader("If-None-Match", c.userEtag).
+		SetHeader("If-None-Match", c.candidateUserEtag()).
 		SetHeader("Accept", protobufContentType).
 		Get(p)
 	if err != nil {
@@ -138,13 +138,27 @@ func (c *NodeClient) getUserListProtobuf(ctx context.Context) ([]UserInfo, error
 			DeviceLimit: int(user.DeviceLimit),
 		})
 	}
-	c.pendingUserEtag = r.Header().Get("ETag")
+	c.setPendingUserEtag(r.Header().Get("ETag"))
 	return users, nil
+}
+
+func (c *NodeClient) candidateUserEtag() string {
+	c.etagMu.Lock()
+	defer c.etagMu.Unlock()
+	return c.userEtag
+}
+
+func (c *NodeClient) setPendingUserEtag(etag string) {
+	c.etagMu.Lock()
+	c.pendingUserEtag = etag
+	c.etagMu.Unlock()
 }
 
 // CommitUserList advances the conditional request only after the candidate is applied.
 func (c *NodeClient) CommitUserList() {
+	c.etagMu.Lock()
 	c.userEtag = c.pendingUserEtag
+	c.etagMu.Unlock()
 }
 
 type ServerPushUserTrafficRequest struct {

@@ -95,6 +95,13 @@ func (c *Controller) userListMonitor(ctx context.Context) (err error) {
 	if newU == nil {
 		return nil
 	}
+	// A reload switch owns the live core exclusively. Acquisition is cancelled
+	// with the task context, so stopping a generation can never wait on a lock
+	// that the reload itself is holding.
+	if err := c.server.LockLive(ctx); err != nil {
+		return nil
+	}
+	defer c.server.UnlockLive()
 	deleted, added := compareUserList(c.userList, newU)
 	if len(deleted) > 0 {
 		c.collectTraffic(0)

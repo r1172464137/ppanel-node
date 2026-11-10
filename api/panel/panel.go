@@ -22,6 +22,7 @@ type NodeClient struct {
 	NodeType        string
 	NodeId          int
 	UseProtobuf     bool
+	etagMu          sync.Mutex
 	userEtag        string
 	pendingUserEtag string
 	UserList        *UserListBody
