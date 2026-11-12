@@ -549,8 +549,11 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 			common.Interrupt(link.Reader)
 			return
 		}
-	} else if d.router != nil && d.TargetIP.Recheck && destination.Address.Family().IsDomain() {
-		route, pinned, err := d.recheckTarget(routingLink, destination)
+	} else if d.router != nil && d.TargetIP.Recheck && ob.Target.Address.Family().IsDomain() {
+		// Only a connection that will dial a name is checked. Route-only
+		// sniffing routes by the sniffed name but dials the original IP
+		// (ob.Target), which the ordinary rule evaluation already sees.
+		route, pinned, err := d.recheckTarget(routingLink, ob.Target)
 		if err != nil {
 			errors.LogWarning(ctx, "target IP check failed: ", err)
 			common.Close(link.Writer)
