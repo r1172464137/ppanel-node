@@ -46,7 +46,7 @@ func TestOrderedOutboundCapabilityMatrixFailsBeforeBuild(t *testing.T) {
 			if err := ValidateOrdered(cfg.Data); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("ValidateOrdered = %v, want %q", err, tc.want)
 			}
-			if _, err := Build(cfg, false); err == nil || !strings.Contains(err.Error(), tc.want) {
+			if _, err := Build(cfg, false, v3TestTag); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("Build = %v, want %q", err, tc.want)
 			}
 		})
@@ -106,7 +106,7 @@ func TestRawCaseFoldConflictsRejectedBeforeBuild(t *testing.T) {
 			if err := ValidateOrdered(cfg.Data); err == nil {
 				t.Fatal("fold collision accepted")
 			}
-			if _, err := Build(cfg, false); err == nil {
+			if _, err := Build(cfg, false, v3TestTag); err == nil {
 				t.Fatal("fold collision built")
 			}
 		})
@@ -162,7 +162,7 @@ func TestMalformedURIsRejectedBeforeXrayBuild(t *testing.T) {
 					t.Fatalf("malformed URI panicked: %v", v)
 				}
 			}()
-			if _, err := Build(cfg, false); err == nil {
+			if _, err := Build(cfg, false, v3TestTag); err == nil {
 				t.Fatal("invalid URI built successfully")
 			}
 		})
@@ -171,7 +171,7 @@ func TestMalformedURIsRejectedBeforeXrayBuild(t *testing.T) {
 	ob := realityOutbound()
 	ob.SpiderX = "/path?p=1-2&x=value"
 	cfg.Data.Routing.Outbounds[0] = ob
-	if _, err := Build(cfg, false); err != nil {
+	if _, err := Build(cfg, false, v3TestTag); err != nil {
 		t.Fatalf("valid REALITY URI rejected: %v", err)
 	}
 }

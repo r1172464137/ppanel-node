@@ -41,7 +41,7 @@ func TestUnsupportedCapabilityNeverAdvancesApplied(t *testing.T) {
 					}
 					if binary {
 						w.Header().Set("Content-Type", "application/protobuf")
-						policy := &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "ordered-v1-inherited", Source: "global", SourceRevision: int64(rev)}
+						policy := &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "inherited", Source: "global", SourceRevision: int64(rev)}
 						data := &serverv1.QueryServerProtocolConfigData{Routing: policy, PullInterval: 3600, PushInterval: 3600}
 						if rev == 2 && kind == "tuic" {
 							policy.Outbounds = []*serverv1.Outbound{{Id: "ob_11111111-1111-4111-8111-111111111111", Name: "tuic", Protocol: "tuic", Address: "127.0.0.1", Port: 443, Uuid: "00000000-0000-0000-0000-000000000001", Password: "password", Settings: `{"address":"127.0.0.1","port":443}`}}
@@ -63,7 +63,7 @@ func TestUnsupportedCapabilityNeverAdvancesApplied(t *testing.T) {
 					if rev == 2 && kind == "shadowsocks-plugin" {
 						protocols = append(protocols, map[string]any{"type": "shadowsocks", "enable": true, "port": 443, "cipher": "aes-128-gcm", "plugin": "obfs", "plugin_opts": map[string]any{"mode": "http"}})
 					}
-					json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"protocols": protocols, "total": len(protocols), "pull_interval": 3600, "push_interval": 3600, "routing": map[string]any{"version": 1, "outbounds": outbounds, "rules": []any{}, "default_outbound_id": "direct", "mode": "ordered-v1-inherited", "source": "global", "source_revision": rev}}})
+					json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"protocols": protocols, "total": len(protocols), "pull_interval": 3600, "push_interval": 3600, "routing": map[string]any{"version": 3, "outbounds": outbounds, "rules": []any{}, "default_outbound_id": "direct", "mode": "inherited", "source": "global", "source_revision": rev}}})
 				}))
 				defer server.Close()
 				cfg := conf.New()

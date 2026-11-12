@@ -41,21 +41,21 @@ func ValidateOrdered(data *panel.Data) error {
 	if p == nil {
 		return fmt.Errorf("routing policy is null or missing")
 	}
-	if p.Version != 1 {
+	if p.Version != panel.RoutingVersion {
 		return fmt.Errorf("unsupported routing version %d", p.Version)
 	}
-	if data.LegacyRoutingPresent || sliceLen(data.Block) != 0 || sliceLen(data.BlockIPs) != 0 || sliceLen(data.BlockProtocols) != 0 || outboundLen(data.Outbound) != 0 {
-		return fmt.Errorf("ordered routing mixed with legacy routing")
+	if data.LegacyPresent {
+		return fmt.Errorf("candidate carries removed legacy routing fields")
 	}
 	if p.SourceRevision <= 0 || p.LocalTransitionRevision < 0 {
 		return fmt.Errorf("invalid routing revision")
 	}
 	switch p.Mode {
-	case "ordered-v1-local":
+	case "local":
 		if p.Source != "server" || p.SourceServerID <= 0 || p.SourceRevision != p.LocalTransitionRevision {
 			return fmt.Errorf("invalid local routing identity")
 		}
-	case "ordered-v1-inherited":
+	case "inherited":
 		if p.Source != "global" || p.SourceServerID != 0 {
 			return fmt.Errorf("invalid inherited routing identity")
 		}
@@ -94,11 +94,14 @@ func ValidateOrdered(data *panel.Data) error {
 		}
 	}
 	content := struct {
-		Version   int               `json:"version"`
-		Outbounds []panel.Outbound  `json:"outbounds"`
-		Rules     []panel.RouteRule `json:"rules"`
-		Default   string            `json:"default_outbound_id"`
-	}{p.Version, copyOutbounds, p.Rules, p.DefaultOutboundID}
+		Version      int                 `json:"version"`
+		Outbounds    []panel.Outbound    `json:"outbounds"`
+		Rules        []panel.RouteRule   `json:"rules"`
+		Default      string              `json:"default_outbound_id"`
+		UserDefaults []panel.UserDefault `json:"user_defaults"`
+		DNS          *panel.DNSPolicy    `json:"dns"`
+		Preference   string              `json:"target_ip_preference"`
+	}{p.Version, copyOutbounds, p.Rules, p.DefaultOutboundID, p.UserDefaults, p.DNS, p.TargetIPPreference}
 	encoded, err := json.Marshal(content)
 	if err != nil || len(encoded) > MaxOrderedJSONBytes {
 		return fmt.Errorf("routing package cannot be encoded or exceeds 1 MiB")
@@ -187,20 +190,20 @@ func ValidateOrdered(data *panel.Data) error {
 	if err != nil || len(encoded) > MaxOrderedJSONBytes {
 		return fmt.Errorf("canonical routing package cannot be encoded or exceeds 1 MiB")
 	}
-	return nil
-}
-
-func sliceLen(v *[]string) int {
-	if v == nil {
-		return 0
+	customIDs := map[string]bool{}
+	for _, ob := range p.Outbounds {
+		customIDs[ob.ID] = true
 	}
-	return len(*v)
-}
-func outboundLen(v *[]panel.Outbound) int {
-	if v == nil {
-		return 0
+	if err := validateAccountScopes(p, ids); err != nil {
+		return err
 	}
-	return len(*v)
+	if err := validateChains(p); err != nil {
+		return err
+	}
+	if err := validateDNSPolicy(p, customIDs); err != nil {
+		return err
+	}
+	return validateIdentitySnapshot(data)
 }
 
 func orderedValues(r panel.RouteRule) ([]string, error) {
@@ -216,9 +219,12 @@ func orderedValues(r panel.RouteRule) ([]string, error) {
 	}
 }
 
-func buildOrdered(config *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult, error) {
+func buildOrdered(config *panel.ServerConfigResponse, hasIPv6 bool, inboundTag func(protocol string) string) (*BuildResult, error) {
 	if err := ValidateOrdered(config.Data); err != nil {
 		return nil, err
+	}
+	if inboundTag == nil {
+		return nil, fmt.Errorf("inbound tag function is required")
 	}
 	p := config.Data.Routing
 	// Only shared DNS and built-in system routes are built before v1 rules.
@@ -270,6 +276,17 @@ func buildOrdered(config *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResul
 				}
 			}
 		}
+		if via := strings.TrimSpace(item.ViaOutboundID); via != "" {
+			// node -> via -> this -> target: this outbound dials its peer
+			// through the preceding outbound.
+			if stream == nil {
+				stream = &coreConf.StreamConfig{}
+			}
+			if stream.SocketSettings == nil {
+				stream.SocketSettings = &coreConf.SocketConfig{}
+			}
+			stream.SocketSettings.DialerProxy = "routing_" + via
+		}
 		tag := "routing_" + item.ID
 		built, err := (&coreConf.OutboundDetourConfig{Tag: tag, Protocol: protocol, Settings: settings, StreamSetting: stream}).Build()
 		if err != nil {
@@ -298,10 +315,24 @@ func buildOrdered(config *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResul
 		if err != nil {
 			return nil, err
 		} // already validated, including disabled
-		if *rule.Enabled {
-			if err := appendRouteRule(routes, rule.Kind, values, tags[rule.OutboundID], rule.ID); err != nil {
-				return nil, err
+		if !*rule.Enabled {
+			continue
+		}
+		var users []string
+		if len(rule.UserIDs) > 0 {
+			accounts := map[int64]bool{}
+			for _, id := range rule.UserIDs {
+				accounts[id] = true
 			}
+			users = accountEmails(config.Data, inboundTag, accounts)
+			if len(users) == 0 {
+				// The scoped accounts have no identity here: the rule
+				// matches nobody. It must never widen to all accounts.
+				continue
+			}
+		}
+		if err := appendScopedRouteRule(routes, rule.Kind, values, users, tags[rule.OutboundID], rule.ID); err != nil {
+			return nil, err
 		}
 	}
 	compiled, err := routes.Build()
@@ -309,5 +340,14 @@ func buildOrdered(config *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResul
 		return nil, fmt.Errorf("build ordered router: %w", err)
 	}
 	base.Router.Rule = append(base.Router.Rule, compiled.Rule...)
+	base.TargetIP = TargetIPPolicy{Recheck: hasEnabledIPRule(p), Preference: p.TargetIPPreference, QueryStrategy: p.DNS.QueryStrategy}
+	// Account defaults apply only to traffic no rule matched; the dispatcher
+	// looks the authenticated identity up in this map.
+	base.UserDefaults = map[string]string{}
+	for _, d := range p.UserDefaults {
+		for _, email := range accountEmails(config.Data, inboundTag, map[int64]bool{d.UserID: true}) {
+			base.UserDefaults[email] = tags[d.OutboundID]
+		}
+	}
 	return base, nil
 }

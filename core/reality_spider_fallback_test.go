@@ -143,12 +143,12 @@ func runSpiderFallbackChild(t *testing.T, mode string) {
 				t.Fatalf("unsafe spider panicked: %v", v)
 			}
 		}()
-		if _, err := outboundbuilder.Build(cfg, false); err == nil {
+		if _, err := outboundbuilder.Build(cfg, false, v3TestTag); err == nil {
 			t.Fatal("unsafe REALITY spider was built")
 		}
 		return
 	}
-	built, err := outboundbuilder.Build(cfg, false)
+	built, err := outboundbuilder.Build(cfg, false, v3TestTag)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -73,7 +73,7 @@ func TestBuiltinDirectThroughRealNodeListener(t *testing.T) {
 	}
 	listenPort := reservation.Addr().(*net.TCPAddr).Port
 	reservation.Close()
-	payload := fmt.Sprintf(`{"code":200,"data":{"pull_interval":3600,"push_interval":3600,"protocols":[{"type":"vless","enable":true,"port":%d,"transport":"tcp"}],"total":1,"routing":{"version":1,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_revision":1}}}`, listenPort)
+	payload := fmt.Sprintf(`{"code":200,"data":{"pull_interval":3600,"push_interval":3600,"protocols":[{"type":"vless","enable":true,"port":%d,"transport":"tcp"}],"total":1,"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":1}}}`, listenPort)
 	panelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v2/server/7" {
 			fmt.Fprint(w, payload)
@@ -264,7 +264,7 @@ func TestHTTPSClientThroughNodeListenerDirectAndSOCKS(t *testing.T) {
 				address = xnet.ParseAddress("127.0.0.1")
 				port = xnet.Port(targetPort)
 			}
-			payload := map[string]any{"code": 200, "data": map[string]any{"push_interval": 3600, "pull_interval": 3600, "protocols": []any{map[string]any{"type": "vless", "enable": true, "port": listenPort, "transport": "tcp"}}, "total": 1, "routing": map[string]any{"version": 1, "outbounds": []panel.Outbound{ob}, "rules": []any{rule, blockRule, healthRule}, "default_outbound_id": dataPlaneOutbound, "mode": "ordered-v1-inherited", "source": "global", "source_revision": 1}}}
+			payload := map[string]any{"code": 200, "data": map[string]any{"push_interval": 3600, "pull_interval": 3600, "protocols": []any{map[string]any{"type": "vless", "enable": true, "port": listenPort, "transport": "tcp"}}, "total": 1, "routing": map[string]any{"version": 3, "outbounds": []panel.Outbound{ob}, "rules": []any{rule, blockRule, healthRule}, "default_outbound_id": dataPlaneOutbound, "mode": "inherited", "source": "global", "source_revision": 1}}}
 			body, err := json.Marshal(payload)
 			if err != nil {
 				t.Fatal(err)

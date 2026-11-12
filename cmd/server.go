@@ -15,6 +15,7 @@ import (
 	"github.com/perfect-panel/ppanel-node/common/logx"
 	"github.com/perfect-panel/ppanel-node/conf"
 	"github.com/perfect-panel/ppanel-node/core"
+	"github.com/perfect-panel/ppanel-node/core/outbound"
 	"github.com/perfect-panel/ppanel-node/node"
 	"github.com/spf13/cobra"
 )
@@ -250,6 +251,39 @@ func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *
 		return logHandle, nil
 	}
 
+	// Only identities changed (CONTRACT 3.6): when none of the changed
+	// accounts is referenced by an account-scoped rule or an account default,
+	// update users and limits on the running instance - other users keep
+	// their connections. Otherwise the compiled router changes and a full
+	// switch follows.
+	if oldCore := *xcore; running {
+		if changed, ok := panel.IdentityOnlyChange(p.Applied(), serverconfig); ok && !anyScoped(changed, outbound.ScopedAccounts(serverconfig.Data.Routing)) {
+			err := (*nodes).ApplyIdentity(serverconfig.Data)
+			if err == nil {
+				if err = (*nodes).ApplyRuntime(serverconfig.Data); err == nil {
+					err = oldCore.SetMonitorInterval(serverconfig.Data.PullInterval)
+				}
+			}
+			if err == nil {
+				if err := p.Commit(serverconfig); err != nil {
+					return logHandle, fmt.Errorf("commit identity update: %w", err)
+				}
+				if p.HasPending() && oldReloadCh != nil {
+					select {
+					case oldReloadCh <- struct{}{}:
+					default:
+					}
+				}
+				logx.Component("server").Info("仅用户身份变化，已就地更新，未重建核心")
+				return logHandle, nil
+			}
+			// The running users may now be partly updated: stop claiming the
+			// previous candidate as applied and rebuild from the candidate.
+			logx.Component("server").WithError(err).Warn("就地更新用户失败，改为整包切换")
+			p.InvalidateApplied()
+		}
+	}
+
 	// Everything that can fail without touching the running service happens
 	// first: compile the Xray configuration, then fetch users and
 	// certificates and build listeners. No Xray instance is created yet,
@@ -371,4 +405,13 @@ func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *
 	logx.Component("server").WithField("server_total", serverconfig.Data.Total).Info("节点重载成功")
 	runtime.GC()
 	return newLogHandle, nil
+}
+
+func anyScoped(changed, scoped map[int64]bool) bool {
+	for id := range changed {
+		if scoped[id] {
+			return true
+		}
+	}
+	return false
 }

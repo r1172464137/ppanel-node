@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,21 +13,11 @@ import (
 )
 
 func (c *Controller) startTasks(node *panel.NodeInfo) error {
-	interval, err := panel.IntervalDuration(node.PullInterval)
-	if err != nil {
-		return fmt.Errorf("user monitor interval: %w", err)
+	if _, err := panel.IntervalDuration(node.PullInterval); err != nil {
+		return fmt.Errorf("pull interval: %w", err)
 	}
-	c.userListMonitorPeriodic = &task.Task{
-		Name:     "userListMonitor",
-		Interval: interval,
-		Execute:  c.userListMonitor,
-		ReloadCh: c.server.ReloadCh,
-	}
-	if err := c.userListMonitorPeriodic.Start(false); err != nil {
-		c.userListMonitorPeriodic = nil
-		return fmt.Errorf("start user monitor: %w", err)
-	}
-	logx.Node(c.tag).Info("用户列表监控任务已启动")
+	// Users, limits and UUIDs arrive with each candidate (identity snapshot);
+	// no periodic user polling remains.
 	if usesTLSCertificate(node) {
 		switch node.Protocol.CertMode {
 		case "none", "", "file", "self":
@@ -42,8 +31,6 @@ func (c *Controller) startTasks(node *panel.NodeInfo) error {
 			logx.Node(c.tag).Info("证书定期更新任务已启动")
 			// delay to start renewCert
 			if err := c.renewCertPeriodic.Start(true); err != nil {
-				c.userListMonitorPeriodic.Close()
-				c.userListMonitorPeriodic = nil
 				c.renewCertPeriodic = nil
 				return fmt.Errorf("start certificate renewal: %w", err)
 			}
@@ -68,66 +55,55 @@ func usesTLSCertificate(node *panel.NodeInfo) bool {
 	}
 }
 
-func (c *Controller) userListMonitor(ctx context.Context) (err error) {
-	// get user info
-	newU, err := c.apiClient.GetUserList(ctx)
-	if err != nil {
-		logx.Node(c.tag).WithError(err).Error("获取用户列表失败")
-		return nil
-	}
-	// get user alive
-	newA, err := c.apiClient.GetUserAlive()
-	if err != nil {
-		logx.Node(c.tag).WithError(err).Error("获取在线列表失败")
-		return nil
-	}
-	// update alive list
-	if newA != nil {
-		c.limiter.SetAliveList(newA)
-	}
-	// update user list
-	// newU == nil indicates 304 Not Modified; empty slice means the list is empty
-	if newU == nil {
-		return nil
-	}
-	deleted, added := compareUserList(c.userList, newU)
-	if len(deleted) > 0 {
+// applyIdentity reconciles the running users of this protocol with users.
+func (c *Controller) applyIdentity(users []panel.UserInfo) error {
+	removed, added, changed := diffIdentity(c.userList, users)
+	if len(removed) > 0 {
 		c.collectTraffic(0)
-		// have deleted users
-		err = c.server.DelUsers(deleted, c.tag, c.info)
-		if err != nil {
-			logx.Node(c.tag).WithError(err).Error("删除用户失败")
-			return nil
+		if err := c.server.DelUsers(removed, c.tag, c.info); err != nil {
+			return fmt.Errorf("remove users: %w", err)
 		}
 	}
 	if len(added) > 0 {
-		// have added users
-		_, err = c.server.AddUsers(&vCore.AddUsersParams{
-			Tag:      c.tag,
-			NodeInfo: c.info,
-			Users:    added,
-		})
-		if err != nil {
-			logx.Node(c.tag).WithError(err).Error("添加用户失败")
-			return nil
+		if _, err := c.server.AddUsers(&vCore.AddUsersParams{Tag: c.tag, NodeInfo: c.info, Users: added}); err != nil {
+			return fmt.Errorf("add users: %w", err)
 		}
 	}
-	if len(added) > 0 || len(deleted) > 0 {
-		// update Limiter
-		c.limiter.UpdateUser(c.tag, added, deleted)
-		if err != nil {
-			logx.Node(c.tag).WithError(err).Error("更新限速用户失败")
-			return nil
-		}
+	if c.limiter != nil {
+		c.limiter.UpdateUser(c.tag, added, removed)
+		c.limiter.UpdateLimits(c.tag, changed)
 	}
-	c.userList = newU
-	if len(added)+len(deleted) != 0 {
-		logx.Node(c.tag).WithFields(map[string]interface{}{
-			"user_deleted": len(deleted),
-			"user_added":   len(added),
-		}).Info("用户列表已更新")
+	c.userList = append([]panel.UserInfo(nil), users...)
+	if len(added)+len(removed)+len(changed) > 0 {
+		logx.Node(c.tag).WithFields(map[string]interface{}{"user_added": len(added), "user_deleted": len(removed), "user_limits": len(changed)}).Info("用户身份已就地更新")
 	}
 	return nil
+}
+
+// diffIdentity compares users by UUID: removed and added identities, and
+// identities whose subscription ID or limits changed.
+func diffIdentity(old, next []panel.UserInfo) (removed, added, changed []panel.UserInfo) {
+	byUUID := make(map[string]panel.UserInfo, len(old))
+	for _, u := range old {
+		byUUID[u.Uuid] = u
+	}
+	for _, u := range next {
+		prev, ok := byUUID[u.Uuid]
+		if !ok {
+			added = append(added, u)
+			continue
+		}
+		delete(byUUID, u.Uuid)
+		if prev != u {
+			changed = append(changed, u)
+		}
+	}
+	for _, u := range old {
+		if _, ok := byUUID[u.Uuid]; ok {
+			removed = append(removed, u)
+		}
+	}
+	return removed, added, changed
 }
 
 func (c *Controller) reportOnlineAndStatus(ctx context.Context, userTraffic []panel.UserTraffic) (err error) {
@@ -160,27 +136,4 @@ func (c *Controller) reportOnlineAndStatus(ctx context.Context, userTraffic []pa
 
 	userTraffic = nil
 	return nil
-}
-
-func compareUserList(old, new []panel.UserInfo) (deleted, added []panel.UserInfo) {
-	oldMap := make(map[string]int)
-	for i, user := range old {
-		key := user.Uuid + strconv.Itoa(user.SpeedLimit)
-		oldMap[key] = i
-	}
-
-	for _, user := range new {
-		key := user.Uuid + strconv.Itoa(user.SpeedLimit)
-		if _, exists := oldMap[key]; !exists {
-			added = append(added, user)
-		} else {
-			delete(oldMap, key)
-		}
-	}
-
-	for _, index := range oldMap {
-		deleted = append(deleted, old[index])
-	}
-
-	return deleted, added
 }

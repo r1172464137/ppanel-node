@@ -5,23 +5,17 @@ import (
 	"testing"
 )
 
-func TestDNSJSONFieldsHaveStringPresence(t *testing.T) {
-	for _, raw := range []string{
-		`{"dns":[{"proto":null,"address":"1.1.1.1"}]}`,
-		`{"dns":[{"proto":"udp","address":null}]}`,
-		`{"dns":[{"address":"1.1.1.1","server_name":null}]}`,
-		`{"dns":[{"address":"1.1.1.1","Address":"8.8.8.8"}]}`,
+// The removed legacy delivery fields are unknown to format 3: a candidate
+// carrying any of them is rejected as a whole, never read or converted.
+func TestLegacyDeliveryFieldsRejected(t *testing.T) {
+	for _, field := range []string{
+		`"dns":[]`, `"dns":[{"proto":"udp","address":"1.1.1.1","domains":[]}]`, `"ip_strategy":"prefer_ipv4"`,
+		`"block":[]`, `"block_ips":[]`, `"block_protocols":[]`, `"outbound":[]`,
 	} {
+		raw := `{"pull_interval":60,"push_interval":60,"protocols":[],"total":0,` + field + `}`
 		var data Data
 		if err := json.Unmarshal([]byte(raw), &data); err == nil {
-			t.Errorf("invalid DNS JSON accepted: %s", raw)
+			t.Errorf("candidate with %s accepted", field)
 		}
-	}
-	var data Data
-	if err := json.Unmarshal([]byte(`{"dns":[{"proto":"","address":"1.1.1.1","server_name":"","domains":null}]}`), &data); err != nil {
-		t.Fatal(err)
-	}
-	if data.DNS == nil || len(*data.DNS) != 1 || (*data.DNS)[0].Address != "1.1.1.1" {
-		t.Fatalf("valid DNS JSON lost: %+v", data.DNS)
 	}
 }

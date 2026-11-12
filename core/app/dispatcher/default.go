@@ -102,13 +102,20 @@ func (r *cachedReader) Interrupt() {
 
 // DefaultDispatcher is a default implementation of Dispatcher.
 type DefaultDispatcher struct {
-	ohm            outbound.Manager
-	router         routing.Router
-	policy         policy.Manager
-	stats          stats.Manager
-	fdns           dns.FakeDNSEngine
-	Counter        sync.Map
-	LinkManagers   sync.Map // map[string]*LinkManager
+	ohm          outbound.Manager
+	router       routing.Router
+	policy       policy.Manager
+	stats        stats.Manager
+	fdns         dns.FakeDNSEngine
+	Counter      sync.Map
+	LinkManagers sync.Map // map[string]*LinkManager
+	// UserDefaults maps an authenticated identity ("inboundTag|UUID") to the
+	// outbound tag for its traffic that matched no rule. Set before serving.
+	UserDefaults map[string]string
+	// TargetIP and DNS implement the IP check and family preference for
+	// domain targets; set before serving.
+	TargetIP       TargetIPPolicy
+	DNS            dns.Client
 	LimiterManager *limiter.Manager
 	routeEventSink atomic.Pointer[routeEventSink]
 }
@@ -542,6 +549,29 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 			common.Interrupt(link.Reader)
 			return
 		}
+	} else if d.router != nil && d.TargetIP.Recheck && destination.Address.Family().IsDomain() {
+		route, pinned, err := d.recheckTarget(routingLink, destination)
+		if err != nil {
+			errors.LogWarning(ctx, "target IP check failed: ", err)
+			common.Close(link.Writer)
+			common.Interrupt(link.Reader)
+			return
+		}
+		// The checked address is final: the outbound must not resolve the
+		// name again to a different, unchecked address.
+		destination = pinned
+		ob.Target = pinned
+		if route != nil {
+			outTag := route.GetOutboundTag()
+			h := d.ohm.GetHandler(outTag)
+			if h == nil {
+				errors.LogWarning(ctx, "non existing outTag: ", outTag)
+				common.Close(link.Writer)
+				common.Interrupt(link.Reader)
+				return
+			}
+			isPickRoute, matchedRuleID, handler = 2, route.GetRuleTag(), h
+		}
 	} else if d.router != nil {
 		if route, err := d.router.PickRoute(routingLink); err == nil {
 			outTag := route.GetOutboundTag()
@@ -562,6 +592,23 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 			}
 		} else {
 			errors.LogInfo(ctx, "default route for ", destination)
+		}
+	}
+
+	if handler == nil && isPickRoute == 0 && len(d.UserDefaults) > 0 {
+		// No rule matched (internal/forced routes never reach here): use the
+		// authenticated account's default outbound, if it has one.
+		if in := session.InboundFromContext(ctx); in != nil && in.User != nil {
+			if tag, ok := d.UserDefaults[in.User.Email]; ok {
+				h := d.ohm.GetHandler(tag)
+				if h == nil {
+					errors.LogWarning(ctx, "account default outbound missing: ", tag)
+					common.Close(link.Writer)
+					common.Interrupt(link.Reader)
+					return // never fall back to the server default
+				}
+				handler = h
+			}
 		}
 	}
 

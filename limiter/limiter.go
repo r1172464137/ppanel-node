@@ -104,6 +104,25 @@ func (l *Limiter) SetAliveList(src map[int]int) {
 	l.mu.Unlock()
 }
 
+// UpdateLimits changes the speed and device limits of existing users in place.
+// The cached speed bucket is dropped so new connections use the new limit;
+// connections already running keep the bucket they started with.
+func (l *Limiter) UpdateLimits(tag string, users []panel.UserInfo) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for i := range users {
+		key := format.UserTag(tag, users[i].Uuid)
+		info := &UserLimitInfo{UID: users[i].Id, SpeedLimit: users[i].SpeedLimit, DeviceLimit: users[i].DeviceLimit}
+		if old, ok := l.UserLimitInfo.Load(key); ok {
+			prev := old.(*UserLimitInfo)
+			info.OverLimit = prev.OverLimit && prev.DeviceLimit == info.DeviceLimit
+		}
+		l.UserLimitInfo.Store(key, info)
+		l.SpeedLimiter.Delete(key)
+		l.uuidToUID[users[i].Uuid] = users[i].Id
+	}
+}
+
 func (l *Limiter) UpdateUser(tag string, added []panel.UserInfo, deleted []panel.UserInfo) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

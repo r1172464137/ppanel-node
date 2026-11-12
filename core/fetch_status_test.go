@@ -37,7 +37,7 @@ func TestMonitorFetchFailuresAreReportedAndClearOn304(t *testing.T) {
 				w.WriteHeader(304)
 				return
 			}
-			fmt.Fprint(w, `{"code":200,"data":{"protocols":[],"routing":{"version":1,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_revision":1}}}`)
+			fmt.Fprint(w, `{"code":200,"data":{"protocols":[],"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":1}}}`)
 		}
 	}))
 	defer srv.Close()

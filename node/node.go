@@ -14,6 +14,7 @@ import (
 	"github.com/perfect-panel/ppanel-node/common/serverstatus"
 	"github.com/perfect-panel/ppanel-node/conf"
 	vCore "github.com/perfect-panel/ppanel-node/core"
+	"github.com/perfect-panel/ppanel-node/core/outbound"
 )
 
 type Node struct {
@@ -80,7 +81,7 @@ func New(core *vCore.XrayCore, config *conf.Conf, serverconfig *panel.ServerConf
 				return nil, err
 			}
 		}
-		controller := NewController(core, p, n)
+		controller := NewController(core, p, n, outbound.IdentityUsers(serverconfig.Data, nodeconfig.Type))
 		controller.traffic = node.traffic
 		node.controllers = append(node.controllers, controller)
 	}
@@ -226,6 +227,24 @@ func (n *Node) ApplyRuntime(data *panel.Data) error {
 			if err := c.userListMonitorPeriodic.SetInterval(pull); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// ApplyIdentity brings every protocol's users to the candidate's identity
+// snapshot on the running instance: added users are registered, removed
+// users are deleted (cutting their connections), and limit-only changes
+// update the limiter without touching connections. On error the caller must
+// fall back to a full switch; the running service is then rebuilt from the
+// candidate.
+func (n *Node) ApplyIdentity(data *panel.Data) error {
+	for _, c := range n.controllers {
+		if c == nil || !c.started {
+			continue
+		}
+		if err := c.applyIdentity(outbound.IdentityUsers(data, c.info.Type)); err != nil {
+			return fmt.Errorf("protocol %s: %w", c.info.Type, err)
 		}
 	}
 	return nil

@@ -22,7 +22,6 @@ type NodeClient struct {
 	NodeType    string
 	NodeId      int
 	UseProtobuf bool
-	userEtag    string
 	UserList    *UserListBody
 	AliveMap    *AliveMap
 	publication *publicationLease

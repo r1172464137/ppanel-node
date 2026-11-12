@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
 	"testing"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
@@ -15,13 +14,8 @@ import (
 )
 
 func TestUserSyncRevokesLastUserAndAllowsEmptyStartup(t *testing.T) {
-	var empty atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if empty.Load() {
-			fmt.Fprint(w, `{"code":200,"data":{"users":[]}}`)
-			return
-		}
-		fmt.Fprint(w, `{"code":200,"data":{"users":[{"id":1,"uuid":"00000000-0000-0000-0000-000000000001"}]}}`)
+		fmt.Fprint(w, `{"code":200}`)
 	}))
 	defer server.Close()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -31,7 +25,8 @@ func TestUserSyncRevokesLastUserAndAllowsEmptyStartup(t *testing.T) {
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
 	protocols := []panel.Protocol{{Type: "vless", Enable: true, Port: port, Transport: "tcp"}}
-	config := &panel.ServerConfigResponse{Data: &panel.Data{Protocols: &protocols, Total: len(protocols), PullInterval: 3600, PushInterval: 3600, Routing: testNodeRouting()}}
+	user := panel.IdentityUser{ID: 1, UUID: "00000000-0000-0000-0000-000000000001", AccountID: 1}
+	config := completeV3(&panel.ServerConfigResponse{Data: &panel.Data{Protocols: &protocols, Total: len(protocols), PullInterval: 3600, PushInterval: 3600, Routing: testNodeRouting()}}, map[string][]panel.IdentityUser{"vless": {user}})
 	cfg := conf.New()
 	cfg.ApiConfig.ApiHost = server.URL
 	xcore := core.New(cfg, panel.NewServerClient(&cfg.ApiConfig))
@@ -54,15 +49,17 @@ func TestUserSyncRevokesLastUserAndAllowsEmptyStartup(t *testing.T) {
 	if manager.GetUsersCount(context.Background()) != 1 {
 		t.Fatal("initial user missing")
 	}
-	empty.Store(true)
-	if err := c.userListMonitor(context.Background()); err != nil {
+	// The next candidate's identity snapshot has no user: applying it in
+	// place revokes the last user.
+	empty := completeV3(&panel.ServerConfigResponse{Data: &panel.Data{Protocols: &protocols, Total: len(protocols), PullInterval: 3600, PushInterval: 3600, Routing: testNodeRouting()}}, nil)
+	if err := n.ApplyIdentity(empty.Data); err != nil {
 		t.Fatal(err)
 	}
 	if manager.GetUsersCount(context.Background()) != 0 {
 		t.Fatal("last user was not revoked")
 	}
 	n.Close()
-	next, err := New(xcore, cfg, config)
+	next, err := New(xcore, cfg, empty)
 	if err != nil {
 		t.Fatal(err)
 	}

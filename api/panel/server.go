@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"unicode/utf8"
 
 	serverv1 "github.com/perfect-panel/ppanel-node/api/server/v1"
@@ -25,41 +26,37 @@ type ServerConfigResponse struct {
 }
 
 type Data struct {
-	TrafficReportThreshold int            `json:"traffic_report_threshold"`
-	PushInterval           int            `json:"push_interval"`
-	PullInterval           int            `json:"pull_interval"`
-	IPStrategy             string         `json:"ip_strategy"`
-	DNS                    *[]DNSItem     `json:"dns"`
-	Block                  *[]string      `json:"block"`
-	BlockIPs               *[]string      `json:"block_ips"`
-	BlockProtocols         *[]string      `json:"block_protocols"`
-	Outbound               *[]Outbound    `json:"outbound"`
-	Protocols              *[]Protocol    `json:"protocols"`
-	Total                  int            `json:"total"`
-	Routing                *RoutingPolicy `json:"routing,omitempty"`
+	TrafficReportThreshold int               `json:"traffic_report_threshold"`
+	PushInterval           int               `json:"push_interval"`
+	PullInterval           int               `json:"pull_interval"`
+	Protocols              *[]Protocol       `json:"protocols"`
+	Total                  int               `json:"total"`
+	Routing                *RoutingPolicy    `json:"routing,omitempty"`
+	IdentitySnapshot       *IdentitySnapshot `json:"identity_snapshot,omitempty"`
 	// Retain JSON presence, including explicit null, for fail-closed validation.
-	RoutingPresent       bool `json:"-"`
-	LegacyRoutingPresent bool `json:"-"`
+	RoutingPresent bool `json:"-"`
+	// LegacyPresent records any removed field (ip_strategy, dns, block*,
+	// outbound) carried by a protobuf candidate; the candidate is rejected.
+	LegacyPresent bool `json:"-"`
 }
 
-// Marshal ordered delivery without the reserved legacy routing keys.
+// MarshalJSON emits the format 3 delivery shape.
 func (d Data) MarshalJSON() ([]byte, error) {
-	if d.Routing == nil {
-		return nil, fmt.Errorf("ordered routing v1 required")
+	if d.Routing == nil || d.IdentitySnapshot == nil {
+		return nil, fmt.Errorf("routing and identity snapshot are required")
 	}
-	if d.LegacyRoutingPresent || (d.Block != nil && len(*d.Block) > 0) || (d.BlockIPs != nil && len(*d.BlockIPs) > 0) || (d.BlockProtocols != nil && len(*d.BlockProtocols) > 0) || (d.Outbound != nil && len(*d.Outbound) > 0) {
-		return nil, fmt.Errorf("mixed routing configuration")
+	if d.LegacyPresent {
+		return nil, fmt.Errorf("legacy routing fields present")
 	}
 	return json.Marshal(struct {
-		TrafficReportThreshold int            `json:"traffic_report_threshold"`
-		PushInterval           int            `json:"push_interval"`
-		PullInterval           int            `json:"pull_interval"`
-		IPStrategy             string         `json:"ip_strategy"`
-		DNS                    *[]DNSItem     `json:"dns"`
-		Protocols              *[]Protocol    `json:"protocols"`
-		Total                  int            `json:"total"`
-		Routing                *RoutingPolicy `json:"routing"`
-	}{d.TrafficReportThreshold, d.PushInterval, d.PullInterval, d.IPStrategy, d.DNS, d.Protocols, d.Total, d.Routing})
+		TrafficReportThreshold int               `json:"traffic_report_threshold"`
+		PushInterval           int               `json:"push_interval"`
+		PullInterval           int               `json:"pull_interval"`
+		Protocols              *[]Protocol       `json:"protocols"`
+		Total                  int               `json:"total"`
+		Routing                *RoutingPolicy    `json:"routing"`
+		IdentitySnapshot       *IdentitySnapshot `json:"identity_snapshot"`
+	}{d.TrafficReportThreshold, d.PushInterval, d.PullInterval, d.Protocols, d.Total, d.Routing, d.IdentitySnapshot})
 }
 
 func (d *Data) UnmarshalJSON(b []byte) error {
@@ -73,7 +70,7 @@ func (d *Data) UnmarshalJSON(b []byte) error {
 	for _, entry := range []struct {
 		name    string
 		allowed map[string]bool
-	}{{"protocols", protocolJSONNames}, {"dns", dnsJSONNames}} {
+	}{{"protocols", protocolJSONNames}} {
 		if raw, ok := fields[entry.name]; ok {
 			if err := validateArrayObjects(raw, entry.allowed, entry.name); err != nil {
 				return err
@@ -86,6 +83,14 @@ func (d *Data) UnmarshalJSON(b []byte) error {
 		}
 		if err := validatePolicyJSON(raw); err != nil {
 			return fmt.Errorf("invalid routing policy: %w", err)
+		}
+	}
+	if raw, ok := fields["identity_snapshot"]; ok {
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return fmt.Errorf("identity_snapshot must not be null")
+		}
+		if err := validateIdentitySnapshotJSON(raw); err != nil {
+			return fmt.Errorf("invalid identity snapshot: %w", err)
 		}
 	}
 	type alias Data
@@ -103,11 +108,6 @@ func (d *Data) UnmarshalJSON(b []byte) error {
 		empty := []Protocol{}
 		d.Protocols = &empty
 	}
-	for _, key := range []string{"block", "block_ips", "block_protocols", "outbound"} {
-		if _, ok := fields[key]; ok {
-			d.LegacyRoutingPresent = true
-		}
-	}
 	return nil
 }
 
@@ -117,14 +117,69 @@ type RoutingIdentity struct {
 	SourceServerID          int64  `json:"source_server_id"`
 	SourceRevision          int64  `json:"source_revision"`
 	LocalTransitionRevision int64  `json:"local_transition_revision"`
+	// SnapshotID is set on reported identities only (from the candidate's
+	// identity snapshot); it is not part of the delivered routing object.
+	SnapshotID string `json:"snapshot_id,omitempty"`
 }
 
+// RoutingPolicy is routing format 3 plus the delivery identity.
 type RoutingPolicy struct {
-	Version           int         `json:"version"`
-	Outbounds         []Outbound  `json:"outbounds"`
-	Rules             []RouteRule `json:"rules"`
-	DefaultOutboundID string      `json:"default_outbound_id"`
+	Version            int           `json:"version"`
+	Outbounds          []Outbound    `json:"outbounds"`
+	Rules              []RouteRule   `json:"rules"`
+	DefaultOutboundID  string        `json:"default_outbound_id"`
+	UserDefaults       []UserDefault `json:"user_defaults"`
+	DNS                *DNSPolicy    `json:"dns"`
+	TargetIPPreference string        `json:"target_ip_preference"`
 	RoutingIdentity
+}
+
+// UserDefault sends an account's otherwise unmatched traffic to OutboundID.
+type UserDefault struct {
+	UserID     int64  `json:"user_id"`
+	OutboundID string `json:"outbound_id"`
+}
+
+type DNSPolicy struct {
+	QueryStrategy string              `json:"query_strategy"`
+	Resolvers     []DNSResolverPolicy `json:"resolvers"`
+}
+
+type DNSResolverPolicy struct {
+	ID          string   `json:"id"`
+	Protocol    string   `json:"protocol"`
+	Address     string   `json:"address"`
+	Domains     []string `json:"domains"`
+	OutboundID  string   `json:"outbound_id"`
+	BootstrapIP string   `json:"bootstrap_ip,omitempty"`
+}
+
+// IdentitySnapshot is the only source of user identities for a candidate.
+type IdentitySnapshot struct {
+	SnapshotID string             `json:"snapshot_id"`
+	Protocols  []ProtocolIdentity `json:"protocols"`
+}
+
+type ProtocolIdentity struct {
+	Protocol string         `json:"protocol"`
+	Users    []IdentityUser `json:"users"`
+}
+
+// IdentityUser: ID is user_subscribe.id (traffic/online reports), AccountID is
+// user.id (account-scoped rules), UUID authenticates.
+type IdentityUser struct {
+	ID          int64  `json:"id"`
+	UUID        string `json:"uuid"`
+	SpeedLimit  int64  `json:"speed_limit"`
+	DeviceLimit int64  `json:"device_limit"`
+	AccountID   int64  `json:"account_id"`
+}
+
+// InboundTag is the Xray tag of a server's inbound for one protocol. The
+// controller and the routing compiler must use the same tag: account-scoped
+// rules match "tag|UUID" identities.
+func InboundTag(apiHost, protocol string, serverID int) string {
+	return fmt.Sprintf("[%s]-%s:%d", apiHost, protocol, serverID)
 }
 
 type RouteRule struct {
@@ -134,35 +189,7 @@ type RouteRule struct {
 	Kind       string   `json:"kind"`
 	Values     []string `json:"values"`
 	OutboundID string   `json:"outbound_id"`
-}
-
-type DNSItem struct {
-	Proto      string   `json:"proto"`
-	Address    string   `json:"address"`
-	ServerName string   `json:"server_name"`
-	Domains    []string `json:"domains"`
-}
-
-func (d *DNSItem) UnmarshalJSON(raw []byte) error {
-	if err := checkDuplicateJSON(raw); err != nil {
-		return err
-	}
-	fields, err := exactObject(raw, dnsJSONNames)
-	if err != nil {
-		return err
-	}
-	for _, name := range []string{"proto", "address", "server_name"} {
-		if value, ok := fields[name]; ok && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return fmt.Errorf("DNS %s must be a string", name)
-		}
-	}
-	type alias DNSItem
-	var value alias
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return err
-	}
-	*d = DNSItem(value)
-	return nil
+	UserIDs    []int64  `json:"user_ids"`
 }
 
 type Outbound struct {
@@ -207,6 +234,7 @@ type Outbound struct {
 	SpiderX                 string   `json:"spider_x,omitempty"`
 	Settings                string   `json:"settings,omitempty"`
 	StreamSettings          string   `json:"stream_settings,omitempty"`
+	ViaOutboundID           string   `json:"via_outbound_id,omitempty"`
 	Rules                   []string `json:"rules"`
 	IPRules                 []string `json:"ip_rules"`
 	ProtocolRules           []string `json:"protocol_rules"`
@@ -273,6 +301,9 @@ type Protocol struct {
 const MaxServerConfigResponseBytes = 2 * 1024 * 1024
 const RoutingVersionHeader = "X-PPanel-Routing-Version"
 
+// RoutingVersion is the only routing format this node accepts and reports.
+const RoutingVersion = 3
+
 // GetServerConfig observes a candidate; it does not claim it has been applied.
 // A 304 or identical body returns a pending candidate until Commit succeeds.
 func GetServerConfig(ctx context.Context, c *ServerClient) (*ServerConfigResponse, error) {
@@ -290,7 +321,7 @@ func GetServerConfig(ctx context.Context, c *ServerClient) (*ServerConfigRespons
 	client := c.Client
 	path := fmt.Sprintf("/v2/server/%d", c.ServerId)
 	request := client.R().SetContext(ctx).SetDoNotParseResponse(true).
-		SetHeader("If-None-Match", etag).SetHeader(RoutingVersionHeader, "1")
+		SetHeader("If-None-Match", etag).SetHeader(RoutingVersionHeader, strconv.Itoa(RoutingVersion))
 	setProtobufResponseAccept(request)
 	r, err := request.Get(path)
 	if err != nil {

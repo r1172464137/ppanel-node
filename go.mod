@@ -7,6 +7,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-acme/lego/v4 v4.25.2
 	github.com/go-resty/resty/v2 v2.16.5
+	github.com/google/uuid v1.6.0
 	github.com/juju/ratelimit v1.0.2
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/sirupsen/logrus v1.9.3
@@ -99,7 +100,6 @@ require (
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/google/gopacket v1.1.19 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.11 // indirect
 	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
 	github.com/gophercloud/gophercloud v1.14.1 // indirect

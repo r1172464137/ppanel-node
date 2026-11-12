@@ -32,7 +32,7 @@ func TestObservedABACommitAnd304Concurrent(t *testing.T) {
 			w.WriteHeader(304)
 			return
 		}
-		fmt.Fprintf(w, `{"code":200,"data":{"protocols":[],"routing":{"version":1,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_revision":%d}}}`, current)
+		fmt.Fprint(w, injectIdentity(fmt.Sprintf(`{"code":200,"data":{"protocols":[],"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":%d}}}`, current)))
 	}))
 	defer srv.Close()
 	c := NewServerClient(&conf.ServerApiConfig{ApiHost: srv.URL, ServerId: 7})
@@ -91,7 +91,7 @@ func TestConfigJSONStrictPresenceAndProtocolNull(t *testing.T) {
 		`{"routing":null,"protocols":[]}`, `{"routing":{},"routing":null,"protocols":[]}`,
 		`{"routing":{},"Routing":null,"protocols":[]}`, `{"future_route":{},"protocols":[]}`,
 		`{"routing":{"Version":1},"protocols":[]}`,
-		`{"routing":{"version":1,"version":2},"protocols":[]}`,
+		`{"routing":{"version":3,"version":2},"protocols":[]}`,
 		`{"routing":{"rules":[{"enabled":true,"Enabled":false}]},"protocols":[]}`,
 		`{"routing":{"outbounds":[{"id":"x","ID":"y"}]},"protocols":[]}`,
 		`{"protocols":[],"protocols":null}`,
@@ -122,16 +122,16 @@ func TestCutoverRejectsOldWireAndAcceptsExplicitEmptyProtocols(t *testing.T) {
 						w.Header().Set("Content-Type", "application/protobuf")
 						data := &serverv1.QueryServerProtocolConfigData{}
 						if ordered {
-							data.Routing = &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1}
+							data.Routing = &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "inherited", Source: "global", SourceRevision: 1}
 						}
 						b, _ := proto.Marshal(&serverv1.QueryServerProtocolConfigResponse{Code: 200, Data: data})
 						w.Write(b)
 						return
 					}
 					if ordered {
-						fmt.Fprint(w, `{"code":200,"data":{"protocols":null,"routing":{"version":1,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_revision":1}}}`)
+						fmt.Fprint(w, injectIdentity(`{"code":200,"data":{"protocols":null,"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":1}}}`))
 					} else {
-						fmt.Fprint(w, `{"code":200,"data":{"protocols":[],"block":["legacy.example"]}}`)
+						fmt.Fprint(w, injectIdentity(`{"code":200,"data":{"protocols":[],"block":["legacy.example"]}}`))
 					}
 				}))
 				defer srv.Close()
@@ -150,7 +150,7 @@ func TestCutoverRejectsOldWireAndAcceptsExplicitEmptyProtocols(t *testing.T) {
 		}
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"code":200,"data":{"routing":{"version":1,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_revision":1}}}`)
+		fmt.Fprint(w, injectIdentity(`{"code":200,"data":{"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":1}}}`))
 	}))
 	defer server.Close()
 	if _, err := GetServerConfig(context.Background(), NewServerClient(&conf.ServerApiConfig{ApiHost: server.URL})); err == nil {
@@ -179,7 +179,7 @@ func TestInstanceIdentityAndRejectForeignLocalStatus(t *testing.T) {
 	if len(match) != 2 || match[1] == id {
 		t.Fatalf("restart did not change instance ID: %q %s", id, out)
 	}
-	bad := &ServerConfigResponse{Data: &Data{Routing: &RoutingPolicy{RoutingIdentity: RoutingIdentity{Mode: "ordered-v1-local", Source: "server", SourceServerID: 8, SourceRevision: 1, LocalTransitionRevision: 1}}}}
+	bad := &ServerConfigResponse{Data: &Data{Routing: &RoutingPolicy{RoutingIdentity: RoutingIdentity{Mode: "local", Source: "server", SourceServerID: 8, SourceRevision: 1, LocalTransitionRevision: 1}}, IdentitySnapshot: testIdentity()}}
 	a.State.setPending(identityOf(bad, a.ServerId))
 	a.State.RecordFailure(bad, "validate")
 	status := a.State.Snapshot()

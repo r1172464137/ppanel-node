@@ -9,7 +9,17 @@ import (
 )
 
 // build default freedom outbund
-func buildDefaultOutbound() (*core.OutboundHandlerConfig, error) {
+// buildDefaultOutbound builds the node-direct Freedom outbound. Its domain
+// strategy follows the target IP preference: prefer a family when both are
+// available, never disable the other one.
+func buildDefaultOutbound(preference string) (*core.OutboundHandlerConfig, error) {
+	strategy := "UseIP"
+	switch preference {
+	case "prefer_ipv4":
+		strategy = "UseIPv4v6"
+	case "prefer_ipv6":
+		strategy = "UseIPv6v4"
+	}
 	outboundDetourConfig := &coreConf.OutboundDetourConfig{}
 	outboundDetourConfig.Protocol = "freedom"
 	outboundDetourConfig.Tag = DefaultTag
@@ -17,7 +27,7 @@ func buildDefaultOutbound() (*core.OutboundHandlerConfig, error) {
 	//outboundDetourConfig.SendThrough = &sendthrough
 
 	proxySetting := &coreConf.FreedomConfig{
-		DomainStrategy: "UseIPv4v6",
+		DomainStrategy: strategy,
 	}
 	var setting json.RawMessage
 	setting, err := json.Marshal(proxySetting)

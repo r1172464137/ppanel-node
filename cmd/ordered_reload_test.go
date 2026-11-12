@@ -34,7 +34,7 @@ func TestOrderedCandidateRetryReplacementAndZeroProtocolStatus(t *testing.T) {
 				w.WriteHeader(304)
 				return
 			}
-			fmt.Fprintf(w, `{"code":200,"data":{"pull_interval":3600,"push_interval":3600,"protocols":[],"routing":{"version":%d,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_server_id":0,"source_revision":%d,"local_transition_revision":0}}}`, version, revision)
+			fmt.Fprintf(w, `{"code":200,"data":{"pull_interval":3600,"push_interval":3600,"protocols":[],"routing":{"version":%d,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_server_id":0,"source_revision":%d,"local_transition_revision":0}}}`, version, revision)
 		case "/v1/server/status":
 			if r.URL.Query().Get("protocol") != "" {
 				t.Error("status was not server scoped")
@@ -170,7 +170,7 @@ func TestMultipleLiveProtocolsDoNotOverwriteServerRoutingStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v2/server/7":
-			fmt.Fprintf(w, `{"code":200,"data":{"push_interval":1,"pull_interval":3600,"protocols":[{"type":"vless","enable":true,"port":%d,"transport":"tcp"},{"type":"vmess","enable":true,"port":%d,"transport":"tcp"}],"total":2,"routing":{"version":1,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_revision":4}}}`, p1, p2)
+			fmt.Fprintf(w, `{"code":200,"data":{"push_interval":1,"pull_interval":3600,"protocols":[{"type":"vless","enable":true,"port":%d,"transport":"tcp"},{"type":"vmess","enable":true,"port":%d,"transport":"tcp"}],"total":2,"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":4}}}`, p1, p2)
 		case "/v1/server/user":
 			fmt.Fprint(w, `{"code":200,"data":{"users":[]}}`)
 		case "/v1/server/status":
@@ -242,7 +242,7 @@ func TestInitialBadCandidateRemainsPendingAndRecovers(t *testing.T) {
 			w.WriteHeader(304)
 			return
 		}
-		fmt.Fprintf(w, `{"code":200,"data":{"protocols":[],"routing":{"version":%d,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_revision":%d}}}`, version, rev)
+		fmt.Fprintf(w, `{"code":200,"data":{"protocols":[],"routing":{"version":%d,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":%d}}}`, version, rev)
 	}))
 	defer server.Close()
 	cfg := conf.New()

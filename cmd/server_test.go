@@ -20,7 +20,7 @@ import (
 )
 
 func testCmdRouting() *panel.RoutingPolicy {
-	return &panel.RoutingPolicy{Version: 1, Outbounds: []panel.Outbound{}, Rules: []panel.RouteRule{}, DefaultOutboundID: "direct", RoutingIdentity: panel.RoutingIdentity{Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1}}
+	return completeV3(&panel.ServerConfigResponse{Data: &panel.Data{Routing: &panel.RoutingPolicy{RoutingIdentity: panel.RoutingIdentity{Mode: "inherited", Source: "global", SourceRevision: 1}}}}, nil).Data.Routing
 }
 
 func TestReloadPreservesServiceAndRollsBackWithoutPanel(t *testing.T) {

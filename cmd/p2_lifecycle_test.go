@@ -179,10 +179,10 @@ func (p *p2Panel) set(fn func(p *p2Panel)) { p.mu.Lock(); fn(p); p.mu.Unlock() }
 func (p *p2Panel) payload() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	routing := fmt.Sprintf(`{"version":1,"outbounds":[`+
+	routing := fmt.Sprintf(`{"version":3,"outbounds":[`+
 		`{"id":%q,"name":"A","protocol":"socks","address":"127.0.0.1","port":%d,"rules":[],"ip_rules":[],"protocol_rules":[]},`+
 		`{"id":%q,"name":"B","protocol":"socks","address":"127.0.0.1","port":%d,"stream_settings":"{\"sockopt\":{\"dialerProxy\":\"routing_%s\"}}","rules":[],"ip_rules":[],"protocol_rules":[]}],`+
-		`"rules":[],"default_outbound_id":%q,"mode":"ordered-v1-inherited","source":"global","source_revision":%d}`,
+		`"rules":[],"default_outbound_id":%q,"mode":"inherited","source":"global","source_revision":%d}`,
 		p2OutboundA, p.relayA, p2OutboundB, p.relayB, p2OutboundA, p2OutboundB, p.rev)
 	return fmt.Sprintf(`{"code":200,"data":{"pull_interval":%d,"push_interval":3600,"protocols":[{"type":"vless","enable":true,"port":%d,"transport":"tcp"}],"total":1,"routing":%s}}`,
 		p.pull, p.listenPort, routing)

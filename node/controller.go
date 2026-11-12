@@ -1,7 +1,6 @@
 package node
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -31,12 +30,15 @@ type Controller struct {
 }
 
 // NewController return a Node controller with default parameters.
-func NewController(core *vCore.XrayCore, api *panel.NodeClient, info *panel.NodeInfo) *Controller {
+// NewController returns a protocol controller whose users come from the
+// candidate's identity snapshot.
+func NewController(core *vCore.XrayCore, api *panel.NodeClient, info *panel.NodeInfo, users []panel.UserInfo) *Controller {
 	controller := &Controller{
 		server:    core,
 		apiClient: api,
 		info:      info,
 		traffic:   newTrafficQueue(),
+		userList:  users,
 	}
 	return controller
 }
@@ -59,11 +61,8 @@ func (c *Controller) Prepare() error {
 		}
 	}
 
-	// Update user
-	c.userList, err = c.apiClient.GetUserList(context.Background())
-	if err != nil {
-		return fmt.Errorf("get user list error: %s", err)
-	}
+	// Users come from the candidate's identity snapshot; only the online
+	// device list is read separately (device limits).
 	c.aliveMap, err = c.apiClient.GetUserAlive()
 	if err != nil {
 		return fmt.Errorf("failed to get user alive list: %s", err)
@@ -166,5 +165,5 @@ func (c *Controller) Close() error {
 }
 
 func (c *Controller) buildNodeTag(node *panel.NodeInfo) string {
-	return fmt.Sprintf("[%s]-%s:%d", c.apiClient.APIHost, node.Type, node.Id)
+	return panel.InboundTag(c.apiClient.APIHost, node.Type, node.Id)
 }

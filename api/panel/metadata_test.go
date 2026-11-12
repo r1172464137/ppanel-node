@@ -70,7 +70,7 @@ func TestDeliveryTotalAndIntervalJSONProto(t *testing.T) {
 						for i := range p {
 							p[i] = &serverv1.ServerProtocol{Type: "vless"}
 						}
-						body, _ := proto.Marshal(&serverv1.QueryServerProtocolConfigResponse{Code: 200, Data: &serverv1.QueryServerProtocolConfigData{Total: tc.total, Protocols: p, PullInterval: tc.pull, PushInterval: tc.push, Routing: &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1}}})
+						body, _ := proto.Marshal(&serverv1.QueryServerProtocolConfigResponse{Code: 200, Data: &serverv1.QueryServerProtocolConfigData{Total: tc.total, Protocols: p, PullInterval: tc.pull, PushInterval: tc.push, Routing: &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "inherited", Source: "global", SourceRevision: 1}}})
 						w.Write(body)
 						return
 					}
@@ -81,7 +81,7 @@ func TestDeliveryTotalAndIntervalJSONProto(t *testing.T) {
 					if tc.null {
 						protocols = nil
 					}
-					json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"total": tc.total, "protocols": protocols, "pull_interval": tc.pull, "push_interval": tc.push, "routing": map[string]any{"version": 1, "outbounds": []any{}, "rules": []any{}, "default_outbound_id": "direct", "mode": "ordered-v1-inherited", "source": "global", "source_revision": 1}}})
+					json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"total": tc.total, "protocols": protocols, "pull_interval": tc.pull, "push_interval": tc.push, "routing": map[string]any{"version": 3, "outbounds": []any{}, "rules": []any{}, "default_outbound_id": "direct", "mode": "inherited", "source": "global", "source_revision": 1}}})
 				}))
 				defer server.Close()
 				result, err := GetServerConfig(context.Background(), NewServerClient(&conf.ServerApiConfig{ApiHost: server.URL, ServerId: 7}))
@@ -101,7 +101,7 @@ func TestProtoUOTRejectedBeforeNarrowingOn32Bit(t *testing.T) {
 		t.Run(fmt.Sprint(inbound), func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/protobuf")
-				data := &serverv1.QueryServerProtocolConfigData{Routing: &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1}}
+				data := &serverv1.QueryServerProtocolConfigData{Routing: &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "inherited", Source: "global", SourceRevision: 1}}
 				if inbound {
 					data.Protocols = []*serverv1.ServerProtocol{{Type: "vless", UotVersion: 1 << 32}}
 					data.Total = 1

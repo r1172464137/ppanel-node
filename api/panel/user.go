@@ -2,14 +2,10 @@ package panel
 
 import (
 	"context"
-	"encoding/json/jsontext"
-	"encoding/json/v2"
 	"fmt"
-	"io"
 	"path"
 
 	serverv1 "github.com/perfect-panel/ppanel-node/api/server/v1"
-	"google.golang.org/protobuf/proto"
 )
 
 type OnlineUser struct {
@@ -36,104 +32,8 @@ type AliveMap struct {
 	Alive map[int]int `json:"alive"`
 }
 
-func (c *NodeClient) GetUserList(ctx context.Context) ([]UserInfo, error) {
-	if c.UseProtobuf {
-		return c.getUserListProtobuf(ctx)
-	}
-	const p = "/v1/server/user"
-	r, err := c.Client.R().
-		SetContext(ctx).
-		SetHeader("If-None-Match", c.userEtag).
-		ForceContentType("application/json").
-		SetDoNotParseResponse(true).
-		Get(p)
-	if r == nil || r.RawResponse == nil {
-		return nil, fmt.Errorf("服务端响应为空")
-	}
-	defer r.RawResponse.Body.Close()
-
-	if r.StatusCode() == 304 {
-		return nil, nil
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), redactTransportError(err))
-	}
-	if r.StatusCode() >= 400 {
-		return nil, fmt.Errorf("访问 %s 失败: HTTP %d: %s", path.Join(c.APIHost+p), r.StatusCode(), summarizeBody(r.Body()))
-	}
-	users, err := decodeUserList(r.RawResponse.Body)
-	if err != nil {
-		return nil, err
-	}
-	c.userEtag = r.Header().Get("ETag")
-	return users, nil
-}
-
-func decodeUserList(body io.Reader) ([]UserInfo, error) {
-	dec := jsontext.NewDecoder(body)
-	for {
-		tok, err := dec.ReadToken()
-		if err != nil {
-			return nil, fmt.Errorf("解码用户列表失败: %w", err)
-		}
-		if tok.Kind() == '"' && tok.String() == "users" {
-			break
-		}
-	}
-	if dec.PeekKind() != '[' {
-		return nil, fmt.Errorf(`解码用户列表失败: "users"非数组`)
-	}
-	// Nil is reserved for HTTP 304; an empty array must revoke all users.
-	users := make([]UserInfo, 0)
-	if err := json.UnmarshalDecode(dec, &users); err != nil {
-		return nil, fmt.Errorf("解码用户列表失败: %w", err)
-	}
-	return users, nil
-}
-
-func (c *NodeClient) getUserListProtobuf(ctx context.Context) ([]UserInfo, error) {
-	const p = "/v1/server/user"
-	r, err := c.Client.R().
-		SetContext(ctx).
-		SetHeader("If-None-Match", c.userEtag).
-		SetHeader("Accept", protobufContentType).
-		Get(p)
-	if err != nil {
-		return nil, fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), redactTransportError(err))
-	}
-	if err := checkHTTPResponse(r, path.Join(c.APIHost+p)); err != nil {
-		return nil, err
-	}
-	if r.StatusCode() == 304 {
-		return nil, nil
-	}
-
-	message := &serverv1.GetServerUserListResponse{}
-	if err := proto.Unmarshal(r.Body(), message); err != nil {
-		return nil, fmt.Errorf("解码 Protobuf 用户列表失败: %w", err)
-	}
-	if err := checkPanelEnvelope(int(message.Code), message.Message, path.Join(c.APIHost+p)); err != nil {
-		return nil, err
-	}
-	if message.Data == nil {
-		return nil, fmt.Errorf("用户列表为空")
-	}
-	users := make([]UserInfo, 0, len(message.Data.Users))
-	for _, user := range message.Data.Users {
-		if user == nil {
-			continue
-		}
-		users = append(users, UserInfo{
-			Id:          int(user.Id),
-			Uuid:        user.Uuid,
-			SpeedLimit:  int(user.SpeedLimit),
-			DeviceLimit: int(user.DeviceLimit),
-		})
-	}
-	c.userEtag = r.Header().Get("ETag")
-	return users, nil
-}
+// Users are delivered in the candidate identity snapshot; the separate
+// user list endpoint is gone.
 
 func (c *NodeClient) GetUserAlive() (map[int]int, error) {
 	c.AliveMap = &AliveMap{}

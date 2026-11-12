@@ -67,10 +67,10 @@ func TestAllOutboundFieldsJSONProtobufGolden(t *testing.T) {
 		t.Fatalf("JSON round-trip lost fields: %#v", round)
 	}
 	var jsonData Data
-	if err := json.Unmarshal([]byte(`{"outbound":[{"plugin_opts":{"n":9007199254740993}}]}`), &jsonData); err != nil {
+	if err := json.Unmarshal([]byte(`{"routing":{"version":3,"outbounds":[{"id":"ob_11111111-1111-4111-8111-111111111111","name":"a","protocol":"socks","plugin_opts":{"n":9007199254740993},"rules":[],"ip_rules":[],"protocol_rules":[]}],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_server_id":0,"source_revision":1,"local_transition_revision":0}}`), &jsonData); err != nil {
 		t.Fatal(err)
 	}
-	optionMap := (*jsonData.Outbound)[0].PluginOptions.(map[string]any)
+	optionMap := jsonData.Routing.Outbounds[0].PluginOptions.(map[string]any)
 	if optionMap["n"] != json.Number("9007199254740993") {
 		t.Fatalf("large JSON number rounded: %#v", optionMap["n"])
 	}
@@ -92,7 +92,7 @@ func TestRoutingWirePresenceAndTags(t *testing.T) {
 		enabled *bool
 	}{{"missing", nil}, {"false", proto.Bool(false)}, {"true", proto.Bool(true)}} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 42,
+			p := &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "inherited", Source: "global", SourceRevision: 42,
 				Rules: []*serverv1.RouteRule{{Id: "rr_11111111-1111-4111-8111-111111111111", Enabled: tc.enabled, Kind: serverv1.RouteKind_ROUTE_KIND_DOMAIN, Values: []string{"test.example"}, OutboundId: "direct"}}}
 			b, err := proto.Marshal(&serverv1.QueryServerProtocolConfigResponse{Data: &serverv1.QueryServerProtocolConfigData{Routing: p}})
 			if err != nil {
@@ -108,7 +108,7 @@ func TestRoutingWirePresenceAndTags(t *testing.T) {
 			}
 		})
 	}
-	for _, text := range []string{`{"routing":{"version":1,"outbounds":[],"rules":[{"enabled":false}],"default_outbound_id":"direct"}}`} {
+	for _, text := range []string{`{"routing":{"version":3,"outbounds":[],"rules":[{"enabled":false}],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none"}}`} {
 		var data Data
 		if err := json.Unmarshal([]byte(text), &data); err != nil {
 			t.Fatal(err)
@@ -124,7 +124,7 @@ func TestRoutingWirePresenceAndTags(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"routing":null}`), &data); err == nil {
 		t.Fatal("null routing accepted")
 	}
-	if err := json.Unmarshal([]byte(`{"routing":{"version":1,"unexpected":"future"}}`), &data); err == nil {
+	if err := json.Unmarshal([]byte(`{"routing":{"version":3,"unexpected":"future"}}`), &data); err == nil {
 		t.Fatal("unknown policy field accepted")
 	}
 	unknown := protowire.AppendTag(nil, 99, protowire.VarintType)
@@ -153,7 +153,7 @@ func TestCandidateETagCommitRetryAndReplacement(t *testing.T) {
 	var mu sync.Mutex
 	revision := 1
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get(RoutingVersionHeader) != "1" {
+		if r.Header.Get(RoutingVersionHeader) != "3" {
 			t.Errorf("missing routing capability header")
 		}
 		mu.Lock()
@@ -165,7 +165,7 @@ func TestCandidateETagCommitRetryAndReplacement(t *testing.T) {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
-		fmt.Fprintf(w, `{"code":200,"data":{"protocols":[],"routing":{"version":1,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_server_id":0,"source_revision":%d,"local_transition_revision":0}}}`, current)
+		fmt.Fprint(w, injectIdentity(fmt.Sprintf(`{"code":200,"data":{"protocols":[],"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_server_id":0,"source_revision":%d,"local_transition_revision":0}}}`, current)))
 	}))
 	defer server.Close()
 	client := NewServerClient(&conf.ServerApiConfig{ApiHost: server.URL, ServerId: 7})
@@ -278,7 +278,7 @@ func TestServerStatusWithoutProtocolJSONAndProtobuf(t *testing.T) {
 				t.Fatal(err)
 			}
 			c.UseProtobuf = binary
-			c.State.commit(&RoutingIdentity{Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 7}, &RoutingIdentity{Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 8})
+			c.State.commit(&RoutingIdentity{Mode: "inherited", Source: "global", SourceRevision: 7}, &RoutingIdentity{Mode: "inherited", Source: "global", SourceRevision: 8})
 			c.State.RecordFailure(nil, "bind")
 			if err := c.ReportServerStatus(t.Context(), &NodeStatus{CPU: 0.5}); err != nil {
 				t.Fatal(err)

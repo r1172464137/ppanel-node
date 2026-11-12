@@ -128,11 +128,18 @@ func typeJSONNames(t reflect.Type) map[string]bool {
 	return m
 }
 
-var dataJSONNames = names("traffic_report_threshold", "push_interval", "pull_interval", "ip_strategy", "dns", "block", "block_ips", "block_protocols", "outbound", "protocols", "total", "routing")
-var policyJSONNames = names("version", "outbounds", "rules", "default_outbound_id", "mode", "source", "source_server_id", "source_revision", "local_transition_revision")
+// The removed legacy fields (ip_strategy, dns, block*, outbound) are not
+// listed: a candidate carrying any of them is rejected as unknown.
+var dataJSONNames = names("traffic_report_threshold", "push_interval", "pull_interval", "protocols", "total", "routing", "identity_snapshot")
+var policyJSONNames = names("version", "outbounds", "rules", "default_outbound_id", "user_defaults", "dns", "target_ip_preference", "mode", "source", "source_server_id", "source_revision", "local_transition_revision")
+var userDefaultJSONNames = typeJSONNames(reflect.TypeOf(UserDefault{}))
+var dnsPolicyJSONNames = typeJSONNames(reflect.TypeOf(DNSPolicy{}))
+var resolverJSONNames = typeJSONNames(reflect.TypeOf(DNSResolverPolicy{}))
+var identityJSONNames = typeJSONNames(reflect.TypeOf(IdentitySnapshot{}))
+var protocolIdentityJSONNames = typeJSONNames(reflect.TypeOf(ProtocolIdentity{}))
+var identityUserJSONNames = typeJSONNames(reflect.TypeOf(IdentityUser{}))
 var outboundJSONNames = typeJSONNames(reflect.TypeOf(Outbound{}))
 var ruleJSONNames = typeJSONNames(reflect.TypeOf(RouteRule{}))
-var dnsJSONNames = typeJSONNames(reflect.TypeOf(DNSItem{}))
 var protocolJSONNames = func() map[string]bool {
 	m := typeJSONNames(reflect.TypeOf(Protocol{}))
 	// Existing panel protocol fields that the current inbound builder does not
@@ -167,12 +174,52 @@ func validatePolicyJSON(raw []byte) error {
 	for _, entry := range []struct {
 		name    string
 		allowed map[string]bool
-	}{{"outbounds", outboundJSONNames}, {"rules", ruleJSONNames}} {
+	}{{"outbounds", outboundJSONNames}, {"rules", ruleJSONNames}, {"user_defaults", userDefaultJSONNames}} {
 		data, ok := fields[entry.name]
 		if !ok || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
 			continue
 		}
 		if err := validateArrayObjects(data, entry.allowed, "routing "+entry.name); err != nil {
+			return err
+		}
+	}
+	if raw, ok := fields["dns"]; ok && !bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		dns, err := exactObject(raw, dnsPolicyJSONNames)
+		if err != nil {
+			return fmt.Errorf("routing dns: %w", err)
+		}
+		if resolvers, ok := dns["resolvers"]; ok {
+			if err := validateArrayObjects(resolvers, resolverJSONNames, "routing dns resolvers"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateIdentitySnapshotJSON(raw []byte) error {
+	fields, err := exactObject(raw, identityJSONNames)
+	if err != nil {
+		return err
+	}
+	protocols, ok := fields["protocols"]
+	if !ok || bytes.Equal(bytes.TrimSpace(protocols), []byte("null")) {
+		return fmt.Errorf("protocols must be an array")
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(protocols, &items); err != nil {
+		return fmt.Errorf("protocols: %w", err)
+	}
+	for i, item := range items {
+		p, err := exactObject(item, protocolIdentityJSONNames)
+		if err != nil {
+			return fmt.Errorf("protocols[%d]: %w", i, err)
+		}
+		users, ok := p["users"]
+		if !ok || bytes.Equal(bytes.TrimSpace(users), []byte("null")) {
+			return fmt.Errorf("protocols[%d].users must be an array", i)
+		}
+		if err := validateArrayObjects(users, identityUserJSONNames, fmt.Sprintf("protocols[%d].users", i)); err != nil {
 			return err
 		}
 	}

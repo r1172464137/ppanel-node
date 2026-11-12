@@ -3,6 +3,7 @@ package panel
 import (
 	"crypto/rand"
 	"fmt"
+	"regexp"
 	"sync"
 	"sync/atomic"
 )
@@ -85,6 +86,8 @@ func (s *RoutingState) signal() {
 	}
 }
 
+var snapshotIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 func copyIdentity(v *RoutingIdentity) *RoutingIdentity {
 	if v == nil {
 		return nil
@@ -96,29 +99,32 @@ func identityOf(v *ServerConfigResponse, serverID int) *RoutingIdentity {
 	if v == nil || v.Data == nil {
 		return nil
 	}
-	if v.Data.Routing == nil {
-		// Legacy responses carry no authoritative revision/source identity.
+	if v.Data.Routing == nil || v.Data.IdentitySnapshot == nil {
 		return nil
 	}
-	id := &v.Data.Routing.RoutingIdentity
+	id := copyIdentity(&v.Data.Routing.RoutingIdentity)
+	id.SnapshotID = v.Data.IdentitySnapshot.SnapshotID
+	if !snapshotIDPattern.MatchString(id.SnapshotID) {
+		return nil
+	}
 	// A corrupt candidate must not inject arbitrary/secret or unbounded text
 	// into status reports. Publish identities only when their shape is valid.
 	if id.SourceRevision <= 0 || id.LocalTransitionRevision < 0 {
 		return nil
 	}
 	switch id.Mode {
-	case "ordered-v1-local":
+	case "local":
 		if id.Source != "server" || id.SourceServerID <= 0 || id.SourceServerID != int64(serverID) || id.SourceRevision != id.LocalTransitionRevision {
 			return nil
 		}
-	case "ordered-v1-inherited":
+	case "inherited":
 		if id.Source != "global" || id.SourceServerID != 0 {
 			return nil
 		}
 	default:
 		return nil
 	}
-	return copyIdentity(id)
+	return id
 }
 func (s *RoutingState) setPending(id *RoutingIdentity) {
 	if s == nil {
@@ -193,11 +199,11 @@ func (s *RoutingState) ClearFetchFailure() {
 }
 func (s *RoutingState) Snapshot() RoutingStatus {
 	if s == nil {
-		return RoutingStatus{Version: 1}
+		return RoutingStatus{Version: RoutingVersion}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	v := RoutingStatus{Version: 1, InstanceID: s.instanceID, Applied: copyIdentity(s.applied), Pending: copyIdentity(s.pending)}
+	v := RoutingStatus{Version: RoutingVersion, InstanceID: s.instanceID, Applied: copyIdentity(s.applied), Pending: copyIdentity(s.pending)}
 	lastError := s.lastError
 	if s.fetchError != nil {
 		lastError = s.fetchError

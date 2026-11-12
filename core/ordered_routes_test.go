@@ -32,10 +32,10 @@ func orderedConfig(rules []panel.RouteRule, outbounds []panel.Outbound) *panel.S
 	if outbounds == nil {
 		outbounds = []panel.Outbound{}
 	}
-	return &panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{}, Routing: &panel.RoutingPolicy{
-		Version: 1, Rules: rules, Outbounds: outbounds, DefaultOutboundID: "direct",
-		RoutingIdentity: panel.RoutingIdentity{Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1},
-	}}}
+	return completeV3(&panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{}, Routing: &panel.RoutingPolicy{
+		Version: 3, Rules: rules, Outbounds: outbounds, DefaultOutboundID: "direct",
+		RoutingIdentity: panel.RoutingIdentity{Mode: "inherited", Source: "global", SourceRevision: 1},
+	}}}, nil)
 }
 
 // Called in the pinned-geodata subprocess, with both production checksums

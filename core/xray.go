@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	outboundbuilder "github.com/perfect-panel/ppanel-node/core/outbound"
+	xdns "github.com/xtls/xray-core/features/dns"
 	"sync"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
@@ -48,6 +50,9 @@ type XrayCore struct {
 	// survives StopInstance so a rollback can start the same configuration
 	// again without contacting the panel.
 	built *core.Config
+	// userDefaults maps "inboundTag|UUID" to the account default outbound tag.
+	userDefaults map[string]string
+	targetIP     outboundbuilder.TargetIPPolicy
 }
 
 type UserMap struct {
@@ -106,11 +111,11 @@ func (v *XrayCore) Build(serverconfig *panel.ServerConfigResponse) error {
 	if err := panel.ValidateDeliveryMetadata(serverconfig.Data); err != nil {
 		return err
 	}
-	cfg, err := buildCoreConfig(v.Config, serverconfig)
+	cfg, result, err := buildCoreConfig(v.Config, serverconfig)
 	if err != nil {
 		return fmt.Errorf("build core: %w", err)
 	}
-	v.built = cfg
+	v.built, v.userDefaults, v.targetIP = cfg, result.UserDefaults, result.TargetIP
 	return nil
 }
 
@@ -138,6 +143,11 @@ func (v *XrayCore) StartInstance() error {
 	v.ohm = server.GetFeature(outbound.ManagerType()).(outbound.Manager)
 	v.dispatcher = server.GetFeature(routing.DispatcherType()).(*dispatcher.DefaultDispatcher)
 	v.dispatcher.LimiterManager = v.LimiterManager
+	v.dispatcher.UserDefaults = v.userDefaults
+	v.dispatcher.TargetIP = dispatcher.TargetIPPolicy{Recheck: v.targetIP.Recheck, Preference: v.targetIP.Preference, QueryStrategy: v.targetIP.QueryStrategy}
+	if dnsClient, ok := server.GetFeature(xdns.ClientType()).(xdns.Client); ok {
+		v.dispatcher.DNS = dnsClient
+	}
 	v.users.mapLock.Lock()
 	v.users.uidMap = make(map[string]int)
 	v.users.mapLock.Unlock()
@@ -222,7 +232,7 @@ func (v *XrayCore) Close() error {
 
 // buildCoreConfig compiles the candidate into an Xray configuration. It has no
 // side effects; see Build for why instance creation is a separate step.
-func buildCoreConfig(c *conf.Conf, serverconfig *panel.ServerConfigResponse) (*core.Config, error) {
+func buildCoreConfig(c *conf.Conf, serverconfig *panel.ServerConfigResponse) (*core.Config, *outboundbuilder.BuildResult, error) {
 	// Log Config
 	coreLogConfig := &coreConf.LogConfig{
 		LogLevel:  c.LogConfig.Level,
@@ -230,10 +240,14 @@ func buildCoreConfig(c *conf.Conf, serverconfig *panel.ServerConfigResponse) (*c
 		ErrorLog:  c.LogConfig.Output,
 	}
 	// Custom config
-	dnsConfig, outBoundConfig, routeConfig, err := GetCustomConfig(serverconfig)
-	if err != nil {
-		return nil, fmt.Errorf("build custom configuration: %w", err)
+	inboundTag := func(protocol string) string {
+		return panel.InboundTag(c.ApiConfig.ApiHost, protocol, c.ApiConfig.ServerId)
 	}
+	built, err := GetCustomConfig(serverconfig, inboundTag)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build custom configuration: %w", err)
+	}
+	dnsConfig, outBoundConfig, routeConfig := built.DNS, built.Outbounds, built.Router
 	// Inbound config
 	var inBoundConfig []*core.InboundHandlerConfig
 
@@ -270,7 +284,7 @@ func buildCoreConfig(c *conf.Conf, serverconfig *panel.ServerConfigResponse) (*c
 		Inbound:  inBoundConfig,
 		Outbound: outBoundConfig,
 	}
-	return config, nil
+	return config, built, nil
 }
 
 // SetMonitorInterval applies a new panel pull interval to the running config

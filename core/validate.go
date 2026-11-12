@@ -20,10 +20,7 @@ func ValidateServerConfig(serverconfig *panel.ServerConfigResponse) error {
 		return err
 	}
 	if err := outboundbuilder.ValidateOrdered(serverconfig.Data); err != nil {
-		return fmt.Errorf("ordered routing v1 required: %w", err)
-	}
-	if err := outboundbuilder.ValidateDNS(serverconfig.Data); err != nil {
-		return err
+		return fmt.Errorf("routing format 3 required: %w", err)
 	}
 	for i, protocol := range *serverconfig.Data.Protocols {
 		if protocol.UoT || protocol.UoTVersion != 0 {

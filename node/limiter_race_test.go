@@ -1,7 +1,6 @@
 package node
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -31,10 +30,9 @@ func TestUserMonitorAndLimiterConcurrent(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 400; i++ {
-			if err := c.userListMonitor(context.Background()); err != nil {
-				t.Error(err)
-				return
-			}
+			// Identity updates change limits while connections are checked.
+			c.limiter.SetAliveList(map[int]int{1: i % 3})
+			c.limiter.UpdateLimits(c.tag, []panel.UserInfo{{Id: 1, Uuid: user.Uuid, DeviceLimit: 1 + i%5, SpeedLimit: i % 2}})
 		}
 	}()
 	go func() {

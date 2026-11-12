@@ -6,9 +6,6 @@ import (
 	outboundbuilder "github.com/perfect-panel/ppanel-node/core/outbound"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
-	"github.com/xtls/xray-core/app/dns"
-	"github.com/xtls/xray-core/app/router"
-	"github.com/xtls/xray-core/core"
 )
 
 // hasPublicIPv6 checks if the machine has a public IPv6 address
@@ -31,10 +28,8 @@ func hasPublicIPv6() bool {
 	return false
 }
 
-func GetCustomConfig(serverconfig *panel.ServerConfigResponse) (*dns.Config, []*core.OutboundHandlerConfig, *router.Config, error) {
-	result, err := outboundbuilder.Build(serverconfig, hasPublicIPv6())
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return result.DNS, result.Outbounds, result.Router, nil
+// GetCustomConfig compiles DNS, outbounds, the router and the account default
+// map. inboundTag returns the Xray inbound tag of a delivered protocol.
+func GetCustomConfig(serverconfig *panel.ServerConfigResponse, inboundTag func(protocol string) string) (*outboundbuilder.BuildResult, error) {
+	return outboundbuilder.Build(serverconfig, hasPublicIPv6(), inboundTag)
 }

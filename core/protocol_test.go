@@ -175,7 +175,7 @@ func protocolClient(t *testing.T, name string, port int, pin string) *xray.Insta
 		item.StreamSettings = string(raw)
 	}
 	item.ID = orderedSOCKSID
-	built, err := outboundbuilder.Build(orderedConfig([]panel.RouteRule{}, []panel.Outbound{item}), false)
+	built, err := outboundbuilder.Build(orderedConfig([]panel.RouteRule{}, []panel.Outbound{item}), false, v3TestTag)
 	if err != nil {
 		t.Fatal(err)
 	}

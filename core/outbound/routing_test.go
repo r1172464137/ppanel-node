@@ -15,19 +15,19 @@ const testOutboundID = "ob_11111111-1111-4111-8111-111111111111"
 func ruleID(i int) string { return fmt.Sprintf("rr_11111111-1111-4111-8111-%012x", i+1) }
 func boolp(v bool) *bool  { return &v }
 func orderedFixture() *panel.ServerConfigResponse {
-	return &panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{}, Routing: &panel.RoutingPolicy{
+	return completeV3(&panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{}, Routing: &panel.RoutingPolicy{
 		Version: 1, Outbounds: []panel.Outbound{{ID: testOutboundID, Name: "proxy", Protocol: "direct"}},
 		Rules: []panel.RouteRule{
 			{ID: ruleID(0), Enabled: boolp(true), Kind: "domain", Values: []string{"special.example"}, OutboundID: testOutboundID},
 			{ID: ruleID(1), Enabled: boolp(false), Kind: "domain", Values: []string{"disabled.example"}, OutboundID: "block"},
 			{ID: ruleID(2), Enabled: boolp(true), Kind: "domain", Values: []string{"suffix:example"}, OutboundID: "block"},
 			{ID: ruleID(3), Enabled: boolp(true), Kind: "ip", Values: []string{"192.0.2.0/24"}, OutboundID: "direct"},
-		}, DefaultOutboundID: testOutboundID, RoutingIdentity: panel.RoutingIdentity{Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1},
-	}}}
+		}, DefaultOutboundID: testOutboundID, RoutingIdentity: panel.RoutingIdentity{Mode: "inherited", Source: "global", SourceRevision: 1},
+	}}}, nil)
 }
 func TestOrderedBuildPreservesRuleOrderAndExplicitDefault(t *testing.T) {
 	cfg := orderedFixture()
-	result, err := Build(cfg, false)
+	result, err := Build(cfg, false, v3TestTag)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestOrderedBuildPreservesRuleOrderAndExplicitDefault(t *testing.T) {
 		t.Fatal("rule kinds were combined")
 	}
 	cfg.Data.Routing.DefaultOutboundID = "block"
-	result, err = Build(cfg, false)
+	result, err = Build(cfg, false, v3TestTag)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,35 +61,34 @@ func TestOrderedBuildPreservesRuleOrderAndExplicitDefault(t *testing.T) {
 }
 func TestOrderedRejectsInvalidEvenWhenDisabled(t *testing.T) {
 	cases := map[string]func(*panel.Data){
-		"unknown version":      func(d *panel.Data) { d.Routing.Version = 2 },
-		"null policy":          func(d *panel.Data) { d.Routing = nil; d.RoutingPresent = true },
-		"unknown mode":         func(d *panel.Data) { d.Routing.Mode = "future" },
-		"bad identity":         func(d *panel.Data) { d.Routing.SourceRevision = 0 },
-		"mixed":                func(d *panel.Data) { d.Block = &[]string{"example.com"} },
-		"explicit mixed empty": func(d *panel.Data) { d.LegacyRoutingPresent = true },
-		"missing enabled":      func(d *panel.Data) { d.Routing.Rules[1].Enabled = nil },
-		"unknown kind":         func(d *panel.Data) { d.Routing.Rules[1].Kind = "future" },
-		"bad value":            func(d *panel.Data) { d.Routing.Rules[1].Values = []string{"geoip:private"} },
-		"empty values":         func(d *panel.Data) { d.Routing.Rules[1].Values = []string{""} },
-		"bad reference":        func(d *panel.Data) { d.Routing.Rules[1].OutboundID = "missing" },
-		"bad default":          func(d *panel.Data) { d.Routing.DefaultOutboundID = "dns_out" },
-		"bad rule id":          func(d *panel.Data) { d.Routing.Rules[1].ID = "bad" },
-		"duplicate rule":       func(d *panel.Data) { d.Routing.Rules[1].ID = d.Routing.Rules[0].ID },
-		"duplicate outbound":   func(d *panel.Data) { d.Routing.Outbounds = append(d.Routing.Outbounds, d.Routing.Outbounds[0]) },
-		"nested legacy":        func(d *panel.Data) { d.Routing.Outbounds[0].Rules = []string{"example.com"} },
-		"invalid raw":          func(d *panel.Data) { d.Routing.Outbounds[0].Settings = `[]` },
-		"unsupported":          func(d *panel.Data) { d.Routing.Outbounds[0].Protocol = "future" },
-		"ignored plugin":       func(d *panel.Data) { d.Routing.Outbounds[0].Plugin = "obfs" },
-		"remark":               func(d *panel.Data) { d.Routing.Rules[1].Remark = strings.Repeat("界", 201) },
-		"raw entry flood":      func(d *panel.Data) { d.Routing.Rules[1].Values = make([]string, MaxRouteRules+1) },
-		"too many rows":        func(d *panel.Data) { d.Routing.Rules = make([]panel.RouteRule, MaxOrderedRules+1) },
-		"too many outbounds":   func(d *panel.Data) { d.Routing.Outbounds = make([]panel.Outbound, MaxNodeOutbounds+1) },
+		"unknown version":    func(d *panel.Data) { d.Routing.Version = 2 },
+		"null policy":        func(d *panel.Data) { d.Routing = nil; d.RoutingPresent = true },
+		"unknown mode":       func(d *panel.Data) { d.Routing.Mode = "future" },
+		"bad identity":       func(d *panel.Data) { d.Routing.SourceRevision = 0 },
+		"legacy fields":      func(d *panel.Data) { d.LegacyPresent = true },
+		"missing enabled":    func(d *panel.Data) { d.Routing.Rules[1].Enabled = nil },
+		"unknown kind":       func(d *panel.Data) { d.Routing.Rules[1].Kind = "future" },
+		"bad value":          func(d *panel.Data) { d.Routing.Rules[1].Values = []string{"geoip:private"} },
+		"empty values":       func(d *panel.Data) { d.Routing.Rules[1].Values = []string{""} },
+		"bad reference":      func(d *panel.Data) { d.Routing.Rules[1].OutboundID = "missing" },
+		"bad default":        func(d *panel.Data) { d.Routing.DefaultOutboundID = "dns_out" },
+		"bad rule id":        func(d *panel.Data) { d.Routing.Rules[1].ID = "bad" },
+		"duplicate rule":     func(d *panel.Data) { d.Routing.Rules[1].ID = d.Routing.Rules[0].ID },
+		"duplicate outbound": func(d *panel.Data) { d.Routing.Outbounds = append(d.Routing.Outbounds, d.Routing.Outbounds[0]) },
+		"nested legacy":      func(d *panel.Data) { d.Routing.Outbounds[0].Rules = []string{"example.com"} },
+		"invalid raw":        func(d *panel.Data) { d.Routing.Outbounds[0].Settings = `[]` },
+		"unsupported":        func(d *panel.Data) { d.Routing.Outbounds[0].Protocol = "future" },
+		"ignored plugin":     func(d *panel.Data) { d.Routing.Outbounds[0].Plugin = "obfs" },
+		"remark":             func(d *panel.Data) { d.Routing.Rules[1].Remark = strings.Repeat("界", 201) },
+		"raw entry flood":    func(d *panel.Data) { d.Routing.Rules[1].Values = make([]string, MaxRouteRules+1) },
+		"too many rows":      func(d *panel.Data) { d.Routing.Rules = make([]panel.RouteRule, MaxOrderedRules+1) },
+		"too many outbounds": func(d *panel.Data) { d.Routing.Outbounds = make([]panel.Outbound, MaxNodeOutbounds+1) },
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {
 			cfg := orderedFixture()
 			change(cfg.Data)
-			if _, err := Build(cfg, false); err == nil {
+			if _, err := Build(cfg, false, v3TestTag); err == nil {
 				t.Fatal("invalid ordered policy accepted")
 			}
 		})
@@ -151,12 +150,12 @@ func TestOrdered128OutboundBuildBoundary(t *testing.T) {
 	for i := range cfg.Data.Routing.Outbounds {
 		cfg.Data.Routing.Outbounds[i] = panel.Outbound{ID: fmt.Sprintf("ob_11111111-1111-4111-8111-%012x", i+1), Name: fmt.Sprintf("ob-%d", i), Protocol: "direct"}
 	}
-	built, err := Build(cfg, false)
+	built, err := Build(cfg, false, v3TestTag)
 	if err != nil || len(built.Outbounds) != 131 {
 		t.Fatalf("128 outbound build = %v, %v", built, err)
 	}
 	cfg.Data.Routing.Outbounds = append(cfg.Data.Routing.Outbounds, panel.Outbound{})
-	if _, err := Build(cfg, false); err == nil {
+	if _, err := Build(cfg, false, v3TestTag); err == nil {
 		t.Fatal("129 outbounds accepted")
 	}
 }
@@ -180,7 +179,7 @@ func TestOrderedShadowsocksUOTFailsClosedAndFinalConfig(t *testing.T) {
 			original := cfg.Data.Routing.Outbounds[0]
 			defer func() { cfg.Data.Routing.Outbounds[0] = original }()
 			mutate(&cfg.Data.Routing.Outbounds[0])
-			if _, err := Build(cfg, false); err == nil {
+			if _, err := Build(cfg, false, v3TestTag); err == nil {
 				t.Fatal("unsupported UoT was ignored")
 			}
 		})
@@ -192,7 +191,7 @@ func TestOrderedShadowsocksUOTFailsClosedAndFinalConfig(t *testing.T) {
 	if err := validateNoUOT(cfg.Data.Routing.Outbounds[0]); err != nil || strings.Contains(strings.ToLower(string(*raw)), "uot") {
 		t.Fatalf("ordered settings = %s, %v", *raw, err)
 	}
-	built, err := Build(cfg, false)
+	built, err := Build(cfg, false, v3TestTag)
 	if err != nil {
 		t.Fatal(err)
 	}

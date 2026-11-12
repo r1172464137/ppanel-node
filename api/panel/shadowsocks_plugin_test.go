@@ -17,7 +17,7 @@ func TestShadowsocksInboundPluginJSONAndProtobufProjection(t *testing.T) {
 			t.Fatal(err)
 		}
 		message := &serverv1.QueryServerProtocolConfigResponse{Code: 200, Data: &serverv1.QueryServerProtocolConfigData{
-			Routing:   &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "ordered-v1-inherited", Source: "global", SourceRevision: 1},
+			Routing:   &serverv1.RoutingPolicy{Version: 1, DefaultOutboundId: "direct", Mode: "inherited", Source: "global", SourceRevision: 1},
 			Protocols: []*serverv1.ServerProtocol{{Type: "shadowsocks", Enable: true, Port: 443, Cipher: "aes-128-gcm", Plugin: "obfs", PluginOptions: pbOption}},
 		}}
 		wire, err := proto.Marshal(message)

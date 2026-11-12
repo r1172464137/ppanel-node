@@ -28,7 +28,7 @@ func validateCandidate(client *panel.ServerClient, candidate *panel.ServerConfig
 	if err := core.ValidateServerConfig(candidate); err != nil {
 		return err
 	}
-	if p := candidate.Data.Routing; p != nil && p.Mode == "ordered-v1-local" && p.SourceServerID != int64(client.ServerId) {
+	if p := candidate.Data.Routing; p != nil && p.Mode == "local" && p.SourceServerID != int64(client.ServerId) {
 		return fmt.Errorf("local routing identity refers to another server")
 	}
 	return nil

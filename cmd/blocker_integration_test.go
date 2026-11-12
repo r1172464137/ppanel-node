@@ -43,7 +43,7 @@ func TestBackendProtocolsNullStopsPriorListener(t *testing.T) {
 				protocols = fmt.Sprintf(`[{"type":"vless","enable":true,"port":%d,"transport":"tcp"}]`, port)
 				total = 1
 			}
-			fmt.Fprintf(w, `{"code":200,"msg":"success","data":{"traffic_report_threshold":0,"push_interval":3600,"pull_interval":3600,"ip_strategy":"","dns":null,"protocols":%s,"total":%d,"routing":{"version":1,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_server_id":0,"source_revision":%d,"local_transition_revision":0}}}`, protocols, total, n)
+			fmt.Fprintf(w, `{"code":200,"msg":"success","data":{"traffic_report_threshold":0,"push_interval":3600,"pull_interval":3600,"ip_strategy":"","dns":null,"protocols":%s,"total":%d,"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_server_id":0,"source_revision":%d,"local_transition_revision":0}}}`, protocols, total, n)
 		case "/v1/server/user":
 			fmt.Fprint(w, `{"code":200,"data":{"users":[]}}`)
 		default:
@@ -112,7 +112,7 @@ func TestReloadABAObservedDuringPreparation(t *testing.T) {
 				protocols = fmt.Sprintf(`[{"type":"vless","enable":true,"port":%d,"transport":"tcp"}]`, port)
 				total = 1
 			}
-			fmt.Fprintf(w, `{"code":200,"data":{"protocols":%s,"total":%d,"pull_interval":3600,"push_interval":3600,"routing":{"version":1,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_revision":%d}}}`, protocols, total, n)
+			fmt.Fprintf(w, `{"code":200,"data":{"protocols":%s,"total":%d,"pull_interval":3600,"push_interval":3600,"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":%d}}}`, protocols, total, n)
 		case "/v1/server/user":
 			close(entered)
 			<-release
@@ -201,7 +201,7 @@ func TestMonitorFetchFailureWakesServerReporter(t *testing.T) {
 				w.WriteHeader(304)
 				return
 			}
-			fmt.Fprint(w, `{"code":200,"data":{"protocols":[],"routing":{"version":1,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_revision":1}}}`)
+			fmt.Fprint(w, `{"code":200,"data":{"protocols":[],"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":1}}}`)
 		case "/v1/server/status":
 			var status panel.ServerPushStatusRequest
 			if err := json.NewDecoder(r.Body).Decode(&status); err != nil {
@@ -259,7 +259,7 @@ func TestInitialRetryReloadsFileAndClient(t *testing.T) {
 			http.Error(w, "bad secret", 403)
 			return
 		}
-		fmt.Fprint(w, `{"code":200,"data":{"protocols":null,"pull_interval":3600,"routing":{"version":1,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_revision":1}}}`)
+		fmt.Fprint(w, `{"code":200,"data":{"protocols":null,"pull_interval":3600,"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":1}}}`)
 	}))
 	defer srv.Close()
 	path := filepath.Join(t.TempDir(), "config.yml")

@@ -15,7 +15,7 @@ import (
 )
 
 func publicationCandidate(revision int64) *ServerConfigResponse {
-	return &ServerConfigResponse{Data: &Data{Routing: &RoutingPolicy{RoutingIdentity: RoutingIdentity{Mode: "ordered-v1-inherited", Source: "global", SourceRevision: revision}}}}
+	return &ServerConfigResponse{Data: &Data{Routing: &RoutingPolicy{RoutingIdentity: RoutingIdentity{Mode: "inherited", Source: "global", SourceRevision: revision}}, IdentitySnapshot: testIdentity()}}
 }
 
 func TestPublicationFenceRejectsRetiredServerAndCertificateClients(t *testing.T) {
@@ -99,7 +99,7 @@ func TestRetiredFetchCannotMutateSharedStateAfterPromotion(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		close(entered)
 		<-release
-		fmt.Fprint(w, `{"code":200,"data":{"protocols":[],"total":0,"routing":{"version":1,"outbounds":[],"rules":[],"default_outbound_id":"direct","mode":"ordered-v1-inherited","source":"global","source_revision":1}}}`)
+		fmt.Fprint(w, injectIdentity(`{"code":200,"data":{"protocols":[],"total":0,"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":1}}}`))
 	}))
 	defer func() { unblock(); server.Close() }()
 	old := NewServerClient(&conf.ServerApiConfig{ApiHost: server.URL, SecretKey: "same", ServerId: 8204, Timeout: 2})

@@ -12,7 +12,6 @@ import (
 	"github.com/perfect-panel/ppanel-node/api/panel"
 	"github.com/xtls/xray-core/app/dns"
 	"github.com/xtls/xray-core/app/router"
-	xnet "github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/core"
 	coreConf "github.com/xtls/xray-core/infra/conf"
 )
@@ -27,65 +26,44 @@ type BuildResult struct {
 	DNS       *dns.Config
 	Outbounds []*core.OutboundHandlerConfig
 	Router    *router.Config
+	// UserDefaults maps an authenticated identity ("inboundTag|UUID") to the
+	// outbound tag used when no rule matched its traffic.
+	UserDefaults map[string]string
+	// Target IP policy for the dispatcher (CONTRACT 4.4).
+	TargetIP TargetIPPolicy
 }
 
-func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult, error) {
+// TargetIPPolicy tells the dispatcher how to treat domain targets.
+type TargetIPPolicy struct {
+	// Recheck: an enabled IP rule exists, so a domain target is resolved
+	// with the DNS policy and every answer is checked against the rules.
+	Recheck bool
+	// Preference orders the checked addresses: none, prefer_ipv4, prefer_ipv6.
+	Preference string
+	// QueryStrategy is the DNS policy's record family selection.
+	QueryStrategy string
+}
+
+// Build compiles a format 3 candidate. inboundTag returns the Xray inbound tag
+// of a delivered protocol; account-scoped rules match "tag|UUID" identities.
+func Build(serverconfig *panel.ServerConfigResponse, hasIPv6 bool, inboundTag func(protocol string) string) (*BuildResult, error) {
 	if serverconfig == nil || serverconfig.Data == nil {
 		return nil, fmt.Errorf("server configuration data is empty")
 	}
-	return buildOrdered(serverconfig, hasIPv6)
+	return buildOrdered(serverconfig, hasIPv6, inboundTag)
 }
 
-// buildBase builds only DNS, the built-in connections and the UDP/53 rule.
+// buildBase builds DNS, the built-in connections and the internal DNS and
+// UDP/53 rules.
 func buildBase(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildResult, error) {
-	var ipStrategy string
-	if serverconfig.Data.IPStrategy != "" {
-		switch serverconfig.Data.IPStrategy {
-		case "prefer_ipv4":
-			ipStrategy = "UseIPv4v6"
-		case "prefer_ipv6":
-			ipStrategy = "UseIPv6v4"
-		default:
-			ipStrategy = "UseIPv4v6"
-		}
-	} else {
-		if hasIPv6 {
-			ipStrategy = "UseIPv4v6"
-		} else {
-			ipStrategy = "UseIPv4"
-		}
-	}
-	dnsConfig := serverconfig.Data.DNS
-
-	//default dns
-	queryStrategy := "UseIPv4v6"
-	if !hasIPv6 {
-		queryStrategy = "UseIPv4"
-	}
-	coreDnsConfig := &coreConf.DNSConfig{
-		Servers: []*coreConf.NameServerConfig{
-			{
-				Address: &coreConf.Address{
-					Address: xnet.ParseAddress("localhost"),
-				},
-			},
-		},
-		QueryStrategy: queryStrategy,
-	}
-
-	//custom dns
-	if dnsConfig != nil {
-		for i, item := range *dnsConfig {
-			server, err := buildDNSResolver(item, ipStrategy)
-			if err != nil {
-				return nil, fmt.Errorf("DNS resolver %d: %w", i+1, err)
-			}
-			coreDnsConfig.Servers = append(coreDnsConfig.Servers, server)
-		}
+	p := serverconfig.Data.Routing
+	coreDnsConfig, resolverRules, err := buildDNSPolicy(p)
+	if err != nil {
+		return nil, err
 	}
 
 	// Built-in outbounds retain the existing Freedom safety settings.
-	defaultoutbound, err := buildDefaultOutbound()
+	defaultoutbound, err := buildDefaultOutbound(p.TargetIPPreference)
 	if err != nil {
 		return nil, fmt.Errorf("build direct: %w", err)
 	}
@@ -106,8 +84,11 @@ func buildBase(serverconfig *panel.ServerConfigResponse, hasIPv6 bool) (*BuildRe
 		"network":     "udp",
 		"outboundTag": DNSTag,
 	})
+	// Queries of each resolver are routed by its tag before every other rule,
+	// so they never reach the UDP/53 rule (no recursion into dns_out) and
+	// never take an account default.
 	coreRouterConfig := &coreConf.RouterConfig{
-		RuleList:       []json.RawMessage{dnsRule},
+		RuleList:       append(resolverRules, dnsRule),
 		DomainStrategy: &domainStrategy,
 	}
 
@@ -139,6 +120,28 @@ var (
 	geoSiteLabelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.!-]*(?:@[A-Za-z0-9_!-]+)*$`)
 	domainLabelPattern  = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
 )
+
+// appendScopedRouteRule adds one ordered rule; a non-empty users list limits
+// it to those authenticated identities ("inboundTag|UUID").
+func appendScopedRouteRule(config *coreConf.RouterConfig, field string, values, users []string, outboundTag, ruleID string) error {
+	if len(users) == 0 {
+		return appendRouteRule(config, field, values, outboundTag, ruleID)
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	rawRule, err := json.Marshal(map[string]interface{}{
+		field:         values,
+		"user":        users,
+		"outboundTag": outboundTag,
+		"ruleTag":     ruleID,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal %s route rule for outbound %q: %w", field, outboundTag, err)
+	}
+	config.RuleList = append(config.RuleList, rawRule)
+	return nil
+}
 
 func appendRouteRule(config *coreConf.RouterConfig, field string, values []string, outboundTag, ruleID string) error {
 	if len(values) == 0 {
