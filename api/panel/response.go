@@ -24,9 +24,9 @@ func checkHTTPResponse(r *resty.Response, url string) error {
 			if err != nil {
 				return fmt.Errorf("访问 %s 失败: HTTP %d: %w", url, r.StatusCode(), err)
 			}
-			return fmt.Errorf("访问 %s 失败: HTTP %d code=%d msg=%s", url, r.StatusCode(), result.Code, result.Message)
+			return fmt.Errorf("访问 %s 失败: HTTP %d code=%d msg=%s", url, r.StatusCode(), result.Code, summarizeText(result.Message))
 		}
-		return fmt.Errorf("访问 %s 失败: %s", url, string(r.Body()))
+		return fmt.Errorf("访问 %s 失败: HTTP %d: %s", url, r.StatusCode(), summarizeBody(r.Body()))
 	}
 	return nil
 }
@@ -38,7 +38,7 @@ func checkPanelEnvelope(code int, msg, url string) error {
 	if strings.TrimSpace(msg) == "" {
 		msg = "面板返回错误"
 	}
-	return fmt.Errorf("访问 %s 失败: code=%d msg=%s", url, code, msg)
+	return fmt.Errorf("访问 %s 失败: code=%d msg=%s", url, code, summarizeText(msg))
 }
 
 func checkPanelResponse(r *resty.Response, url string) error {

@@ -331,9 +331,9 @@ func GetServerConfig(ctx context.Context, c *ServerClient) (*ServerConfigRespons
 			if err != nil {
 				return nil, fmt.Errorf("HTTP %d: %w", r.StatusCode(), err)
 			}
-			return nil, fmt.Errorf("HTTP %d: code=%d msg=%s", r.StatusCode(), result.Code, result.Message)
+			return nil, fmt.Errorf("HTTP %d: code=%d msg=%s", r.StatusCode(), result.Code, summarizeText(result.Message))
 		}
-		return nil, fmt.Errorf("HTTP %d: %s", r.StatusCode(), string(body))
+		return nil, fmt.Errorf("HTTP %d: %s", r.StatusCode(), summarizeBody(body))
 	}
 	resp := &ServerConfigResponse{}
 	if isProtobufResponse(r) {

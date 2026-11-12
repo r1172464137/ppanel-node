@@ -57,11 +57,10 @@ func (c *NodeClient) GetUserList(ctx context.Context) ([]UserInfo, error) {
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), err)
+		return nil, fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), redactTransportError(err))
 	}
 	if r.StatusCode() >= 400 {
-		body := r.Body()
-		return nil, fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), string(body))
+		return nil, fmt.Errorf("访问 %s 失败: HTTP %d: %s", path.Join(c.APIHost+p), r.StatusCode(), summarizeBody(r.Body()))
 	}
 	users, err := decodeUserList(r.RawResponse.Body)
 	if err != nil {
@@ -101,7 +100,7 @@ func (c *NodeClient) getUserListProtobuf(ctx context.Context) ([]UserInfo, error
 		SetHeader("Accept", protobufContentType).
 		Get(p)
 	if err != nil {
-		return nil, fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), err)
+		return nil, fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), redactTransportError(err))
 	}
 	if err := checkHTTPResponse(r, path.Join(c.APIHost+p)); err != nil {
 		return nil, err
@@ -191,7 +190,7 @@ func (c *NodeClient) ReportUserTraffic(ctx context.Context, userTraffic *[]UserT
 		ForceContentType("application/json").
 		Post(p)
 	if err != nil {
-		return fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), err)
+		return fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), redactTransportError(err))
 	}
 	return checkPanelResponse(r, path.Join(c.APIHost+p))
 }
@@ -212,7 +211,7 @@ func (c *NodeClient) reportUserTrafficProtobuf(ctx context.Context, userTraffic 
 	}
 	r, err := request.Post(p)
 	if err != nil {
-		return fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), err)
+		return fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), redactTransportError(err))
 	}
 	return checkPanelResponse(r, path.Join(c.APIHost+p))
 }
@@ -231,7 +230,7 @@ func (c *NodeClient) ReportNodeOnlineUsers(ctx context.Context, data *[]OnlineUs
 		ForceContentType("application/json").
 		Post(p)
 	if err != nil {
-		return fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), err)
+		return fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), redactTransportError(err))
 	}
 	return checkPanelResponse(r, path.Join(c.APIHost+p))
 }
@@ -248,7 +247,7 @@ func (c *NodeClient) reportNodeOnlineUsersProtobuf(ctx context.Context, data *[]
 	}
 	r, err := request.Post(p)
 	if err != nil {
-		return fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), err)
+		return fmt.Errorf("访问 %s 失败: %s", path.Join(c.APIHost+p), redactTransportError(err))
 	}
 	return checkPanelResponse(r, path.Join(c.APIHost+p))
 }

@@ -6,8 +6,8 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"reflect"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
 
@@ -167,6 +167,10 @@ func serverHandle(_ *cobra.Command, _ []string) {
 
 }
 
+// afterPreviousStopped is a test seam called once the previous instance is
+// closed and before the candidate instance is created.
+var afterPreviousStopped = func() {}
+
 func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *logx.Handle) (*logx.Handle, error) {
 	// Preserve old reload channel so new core continues to receive signals
 	var oldReloadCh chan struct{}
@@ -212,26 +216,58 @@ func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *
 		return logHandle, fmt.Errorf("validate candidate: %w", err)
 	}
 
-	newCore := core.New(newConf, p)
-	// Reattach reload channel
-	newCore.ReloadCh = oldReloadCh
-	if err := newCore.StartPrepared(serverconfig); err != nil {
-		stage := panel.StageBuild
-		if strings.HasPrefix(err.Error(), "start core:") {
-			stage = panel.StageCoreStart
-		}
-		p.RecordFailure(serverconfig, stage)
-		_ = newCore.Close()
-		return logHandle, fmt.Errorf("%s candidate: %w", stage, err)
+	// With the previous service actually running and the same local
+	// configuration, an unchanged candidate needs no action, and a candidate
+	// that changes only intervals or the traffic threshold is applied by
+	// adjusting the periodic tasks in place. Listeners, users and connections
+	// are not touched. After a failed rollback the instance is not running, so
+	// the same candidate is rebuilt instead of being skipped.
+	running := *xcore != nil && *nodes != nil && (*xcore).Running() && (*xcore).Client == p &&
+		reflect.DeepEqual((*xcore).Config, newConf)
+	if running && panel.SameCandidate(p.Applied(), serverconfig) {
+		logx.Component("server").Info("配置无变化，不重载")
+		return logHandle, nil
 	}
-	logx.Component("server").Info("新Xray核心启动成功")
+	if oldCore := *xcore; running && panel.RuntimeOnlyChange(p.Applied(), serverconfig) {
+		if err := (*nodes).ApplyRuntime(serverconfig.Data); err != nil {
+			p.RecordFailure(serverconfig, panel.StagePrepare)
+			return logHandle, fmt.Errorf("apply runtime settings: %w", err)
+		}
+		if err := oldCore.SetMonitorInterval(serverconfig.Data.PullInterval); err != nil {
+			p.RecordFailure(serverconfig, panel.StageMonitor)
+			return logHandle, fmt.Errorf("apply monitor interval: %w", err)
+		}
+		if err := p.Commit(serverconfig); err != nil {
+			return logHandle, fmt.Errorf("commit runtime settings: %w", err)
+		}
+		if p.HasPending() && oldReloadCh != nil {
+			select {
+			case oldReloadCh <- struct{}{}:
+			default:
+			}
+		}
+		logx.Component("server").Info("仅运行参数变化，已就地更新，未重建核心")
+		return logHandle, nil
+	}
+
+	// Everything that can fail without touching the running service happens
+	// first: compile the Xray configuration, then fetch users and
+	// certificates and build listeners. No Xray instance is created yet,
+	// because creating one re-points the process-wide system dialer used by
+	// the instance that is still serving.
+	newCore := core.New(newConf, p)
+	newCore.ReloadCh = oldReloadCh
+	if err := newCore.Build(serverconfig); err != nil {
+		p.RecordFailure(serverconfig, panel.StageBuild)
+		_ = newCore.Close()
+		return logHandle, fmt.Errorf("build candidate: %w", err)
+	}
 	newNodes, err := node.New(newCore, newConf, serverconfig)
 	if err != nil {
 		p.RecordFailure(serverconfig, panel.StagePrepare)
 		_ = newCore.Close()
 		return logHandle, fmt.Errorf("prepare candidate: %w", err)
 	}
-
 	if err := newNodes.Prepare(); err != nil {
 		p.RecordFailure(serverconfig, panel.StagePrepare)
 		newNodes.Close()
@@ -247,7 +283,21 @@ func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *
 		cleanup := func() { newNodes.Close(); _ = newCore.Close() }
 		var restart func() error
 		if oldNodes != nil && oldCore != nil {
-			restart = oldNodes.Start
+			// Recreate the previous instance from its saved configuration
+			// and re-bind its listeners from the cached users and
+			// certificates. Creating it also points the process-wide dialer
+			// back at the previous instance.
+			restart = func() error {
+				if err := oldCore.StartInstance(); err != nil {
+					return err
+				}
+				if err := oldNodes.Start(); err != nil {
+					_ = oldCore.StopInstance()
+					oldNodes.MarkInstanceStopped()
+					return err
+				}
+				return nil
+			}
 		}
 		restored, err := restorePrevious(stage, cause, cleanup, restart)
 		if !restored {
@@ -260,12 +310,26 @@ func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *
 		}
 		return logHandle, err
 	}
-	// Keep the old core and the prepared node snapshots until the new listeners
-	// are bound. Rollback never fetches users or certificates from the panel.
+	// Switch: stop the previous listeners (collecting their traffic), close
+	// the previous instance so no connection keeps using it, then create the
+	// new instance and bind. A listener removal error does not leave anything
+	// ambiguous because closing the instance closes every listener.
 	if oldNodes != nil {
 		if err := oldNodes.Stop(); err != nil {
-			return restore("stop", err)
+			logx.Component("server").WithError(err).Warn("停止旧监听失败，将关闭旧实例")
 		}
+	}
+	if oldCore != nil {
+		if err := oldCore.StopInstance(); err != nil {
+			logx.Component("server").WithError(err).Warn("关闭旧实例时出现错误")
+		}
+	}
+	if oldNodes != nil {
+		oldNodes.MarkInstanceStopped()
+	}
+	afterPreviousStopped()
+	if err := newCore.StartInstance(); err != nil {
+		return restore("core_start", err)
 	}
 	if err := newNodes.Start(); err != nil {
 		return restore("bind", err)

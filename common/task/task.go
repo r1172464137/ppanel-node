@@ -96,3 +96,26 @@ func (t *Task) Close() {
 	}
 	t.mu.Unlock()
 }
+
+// SetInterval changes the period of a task. A running task is stopped (waiting
+// for an in-flight execution) and restarted with the new interval; a task
+// that is not running only records it.
+func (t *Task) SetInterval(d time.Duration) error {
+	if d <= 0 {
+		return errors.New("invalid periodic task interval")
+	}
+	t.mu.Lock()
+	running := t.cancel != nil
+	t.mu.Unlock()
+	if !running {
+		t.mu.Lock()
+		t.Interval = d
+		t.mu.Unlock()
+		return nil
+	}
+	t.Close()
+	t.mu.Lock()
+	t.Interval = d
+	t.mu.Unlock()
+	return t.Start(false)
+}

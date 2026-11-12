@@ -1,6 +1,7 @@
 package dispatcher
 
 import (
+	"net"
 	sync "sync"
 
 	"github.com/xtls/xray-core/common"
@@ -21,15 +22,28 @@ func (w *ManagedWriter) Close() error {
 	return common.Close(w.writer)
 }
 
+// LinkManager tracks one user's active links so they can be cut when the user
+// is removed or the whole instance is retired. Closing only the buffer
+// wrappers is not enough: a link served by DispatchLink or by splice copy keeps
+// running on the inbound connection, so the real connection is closed too.
 type LinkManager struct {
-	links map[*ManagedWriter]buf.Reader
+	links map[*ManagedWriter]linkEntry
 	mu    sync.Mutex
 }
 
-func (m *LinkManager) AddLink(writer *ManagedWriter, reader buf.Reader) {
+type linkEntry struct {
+	reader buf.Reader
+	conn   net.Conn
+}
+
+func newLinkManager() *LinkManager {
+	return &LinkManager{links: make(map[*ManagedWriter]linkEntry)}
+}
+
+func (m *LinkManager) AddLink(writer *ManagedWriter, reader buf.Reader, conn net.Conn) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.links[writer] = reader
+	m.links[writer] = linkEntry{reader: reader, conn: conn}
 }
 
 func (m *LinkManager) RemoveWriter(writer *ManagedWriter) {
@@ -41,10 +55,22 @@ func (m *LinkManager) RemoveWriter(writer *ManagedWriter) {
 func (m *LinkManager) CloseAll() {
 	m.mu.Lock()
 	links := m.links
-	m.links = make(map[*ManagedWriter]buf.Reader)
+	m.links = make(map[*ManagedWriter]linkEntry)
 	m.mu.Unlock()
-	for w, r := range links {
-		common.Close(w)
-		common.Interrupt(r)
+	for w, e := range links {
+		if e.conn != nil {
+			_ = e.conn.Close()
+		}
+		common.Close(w.writer)
+		if e.reader != nil {
+			common.Interrupt(e.reader)
+		}
 	}
+}
+
+// Len reports the number of tracked links (for tests and diagnostics).
+func (m *LinkManager) Len() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.links)
 }

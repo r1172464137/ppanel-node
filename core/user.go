@@ -25,6 +25,9 @@ import (
 )
 
 func (v *XrayCore) GetUserManager(tag string) (proxy.UserManager, error) {
+	if !v.Running() {
+		return nil, fmt.Errorf("core is not running")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	handler, err := v.ihm.GetHandler(ctx, tag)
@@ -76,6 +79,9 @@ func (vc *XrayCore) GetUserTrafficSlice(tag string, mintraffic int) ([]panel.Use
 	trafficSlice := make([]panel.UserTraffic, 0)
 	vc.users.mapLock.RLock()
 	defer vc.users.mapLock.RUnlock()
+	if vc.dispatcher == nil {
+		return trafficSlice, nil
+	}
 	if v, ok := vc.dispatcher.Counter.Load(tag); ok {
 		c := v.(*counter.TrafficCounter)
 		c.Counters.Range(func(key, value interface{}) bool {

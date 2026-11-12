@@ -195,6 +195,61 @@ func (n *Node) Stop() error {
 	return result
 }
 
+// ApplyRuntime applies new panel intervals and the traffic report threshold to
+// a running node without touching listeners, users or connections.
+func (n *Node) ApplyRuntime(data *panel.Data) error {
+	if n == nil || data == nil {
+		return nil
+	}
+	push, err := panel.IntervalDuration(data.PushInterval)
+	if err != nil {
+		return fmt.Errorf("push interval: %w", err)
+	}
+	pull, err := panel.IntervalDuration(data.PullInterval)
+	if err != nil {
+		return fmt.Errorf("pull interval: %w", err)
+	}
+	n.pushInterval = push
+	if n.reportPeriodic != nil {
+		if err := n.reportPeriodic.SetInterval(push); err != nil {
+			return err
+		}
+	}
+	for _, c := range n.controllers {
+		if c == nil || c.info == nil {
+			continue
+		}
+		c.info.PushInterval = int(push / time.Second)
+		c.info.PullInterval = int(pull / time.Second)
+		c.info.TrafficReportThreshold = data.TrafficReportThreshold
+		if c.userListMonitorPeriodic != nil {
+			if err := c.userListMonitorPeriodic.SetInterval(pull); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// MarkInstanceStopped records that the Xray instance carrying this node's
+// listeners was closed: every listener and user registration is gone, so the
+// controllers must bind again on the next Start. Prepared users, certificates,
+// limiters and pending traffic are kept for a rollback without the panel.
+func (n *Node) MarkInstanceStopped() {
+	if n == nil {
+		return
+	}
+	if n.reportPeriodic != nil {
+		n.reportPeriodic.Close()
+		n.reportPeriodic = nil
+	}
+	for _, c := range n.controllers {
+		if c != nil {
+			c.markInstanceStopped()
+		}
+	}
+}
+
 func (n *Node) Close() {
 	if n == nil {
 		return

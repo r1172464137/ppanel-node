@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
 	"github.com/perfect-panel/ppanel-node/conf"
@@ -20,11 +19,8 @@ func restorePrevious(stage string, cause error, cleanup func(), restart func() e
 	if err := restart(); err != nil {
 		return false, fmt.Errorf("%s failed: %w; restoring previous nodes failed: %v", stage, cause, err)
 	}
-	if stage == "stop" {
-		// A failed removal leaves a controller's started flag ambiguous; Start
-		// cannot prove its listener is usable in that case.
-		return false, fmt.Errorf("stop failed: %w; previous listener availability is unverified", cause)
-	}
+	// restart recreates the previous instance and binds every listener, so a
+	// successful restart proves the previous service is available again.
 	return true, fmt.Errorf("%s failed, previous nodes restored: %w", stage, cause)
 }
 
@@ -79,14 +75,10 @@ func startInitial(ctx context.Context, cfg *conf.Conf, client *panel.ServerClien
 	}
 	x := core.New(cfg, client)
 	x.ReloadCh = reloadCh
-	if err := x.StartPrepared(candidate); err != nil {
-		stage := panel.StageBuild
-		if strings.HasPrefix(err.Error(), "start core:") {
-			stage = panel.StageCoreStart
-		}
-		client.RecordFailure(candidate, stage)
+	if err := x.Build(candidate); err != nil {
+		client.RecordFailure(candidate, panel.StageBuild)
 		_ = x.Close()
-		return nil, nil, candidate, fmt.Errorf("%s candidate: %w", stage, err)
+		return nil, nil, candidate, fmt.Errorf("build candidate: %w", err)
 	}
 	n, err := node.New(x, cfg, candidate)
 	if err != nil {
@@ -99,6 +91,12 @@ func startInitial(ctx context.Context, cfg *conf.Conf, client *panel.ServerClien
 		n.Close()
 		_ = x.Close()
 		return nil, nil, candidate, fmt.Errorf("prepare candidate: %w", err)
+	}
+	if err := x.StartInstance(); err != nil {
+		client.RecordFailure(candidate, panel.StageCoreStart)
+		n.Close()
+		_ = x.Close()
+		return nil, nil, candidate, fmt.Errorf("core_start candidate: %w", err)
 	}
 	if err := n.Start(); err != nil {
 		client.RecordFailure(candidate, panel.StageBind)

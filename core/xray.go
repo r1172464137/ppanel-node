@@ -44,6 +44,10 @@ type XrayCore struct {
 	ihm                         inbound.Manager
 	ohm                         outbound.Manager
 	dispatcher                  *dispatcher.DefaultDispatcher
+	// built is the compiled Xray configuration of the current candidate. It
+	// survives StopInstance so a rollback can start the same configuration
+	// again without contacting the panel.
+	built *core.Config
 }
 
 type UserMap struct {
@@ -66,14 +70,34 @@ func New(config *conf.Conf, client *panel.ServerClient) *XrayCore {
 // Start retains the existing standalone behavior. Reload prepares a core
 // without its monitor and activates it only after the listener switch commits.
 func (v *XrayCore) Start(serverconfig *panel.ServerConfigResponse) error {
-	return v.start(serverconfig, true)
+	if err := v.Build(serverconfig); err != nil {
+		return err
+	}
+	if err := v.StartInstance(); err != nil {
+		return err
+	}
+	if err := v.Activate(serverconfig); err != nil {
+		_ = v.StopInstance()
+		return fmt.Errorf("start core monitor: %w", err)
+	}
+	return nil
 }
 
+// StartPrepared builds and starts the instance without its monitor. It is
+// only safe when no other Xray instance is serving (initial startup).
 func (v *XrayCore) StartPrepared(serverconfig *panel.ServerConfigResponse) error {
-	return v.start(serverconfig, false)
+	if err := v.Build(serverconfig); err != nil {
+		return err
+	}
+	return v.StartInstance()
 }
 
-func (v *XrayCore) start(serverconfig *panel.ServerConfigResponse, monitor bool) error {
+// Build validates the candidate and compiles its Xray configuration without
+// creating an instance. Creating an instance (core.New) re-points Xray's
+// process-wide system dialer - the DNS client and outbound manager used by
+// dialerProxy and domain-strategy dialing - so it must not happen while
+// another instance still serves traffic. Build is pure and safe at any time.
+func (v *XrayCore) Build(serverconfig *panel.ServerConfigResponse) error {
 	v.access.Lock()
 	defer v.access.Unlock()
 	if serverconfig == nil {
@@ -82,28 +106,78 @@ func (v *XrayCore) start(serverconfig *panel.ServerConfigResponse, monitor bool)
 	if err := panel.ValidateDeliveryMetadata(serverconfig.Data); err != nil {
 		return err
 	}
-	server, err := getCore(v.Config, serverconfig)
+	cfg, err := buildCoreConfig(v.Config, serverconfig)
 	if err != nil {
 		return fmt.Errorf("build core: %w", err)
 	}
-	v.Server = server
-	if err := v.Server.Start(); err != nil {
-		_ = v.Server.Close()
-		v.Server = nil
+	v.built = cfg
+	return nil
+}
+
+// StartInstance creates and starts the Xray instance from the built
+// configuration. Callers must have stopped every other instance first.
+func (v *XrayCore) StartInstance() error {
+	v.access.Lock()
+	defer v.access.Unlock()
+	if v.built == nil {
+		return fmt.Errorf("build core: configuration not built")
+	}
+	if v.Server != nil {
+		return fmt.Errorf("start core: instance already running")
+	}
+	server, err := core.New(v.built)
+	if err != nil {
+		return fmt.Errorf("start core: create Xray instance: %w", err)
+	}
+	if err := server.Start(); err != nil {
+		_ = server.Close()
 		return fmt.Errorf("start core: %w", err)
 	}
-	v.ihm = v.Server.GetFeature(inbound.ManagerType()).(inbound.Manager)
-	v.ohm = v.Server.GetFeature(outbound.ManagerType()).(outbound.Manager)
-	v.dispatcher = v.Server.GetFeature(routing.DispatcherType()).(*dispatcher.DefaultDispatcher)
+	v.Server = server
+	v.ihm = server.GetFeature(inbound.ManagerType()).(inbound.Manager)
+	v.ohm = server.GetFeature(outbound.ManagerType()).(outbound.Manager)
+	v.dispatcher = server.GetFeature(routing.DispatcherType()).(*dispatcher.DefaultDispatcher)
 	v.dispatcher.LimiterManager = v.LimiterManager
-	if monitor {
-		if err := v.startTasks(serverconfig); err != nil {
-			_ = v.Server.Close()
-			v.Server, v.ihm, v.ohm, v.dispatcher = nil, nil, nil, nil
-			return fmt.Errorf("start core monitor: %w", err)
-		}
-	}
+	v.users.mapLock.Lock()
+	v.users.uidMap = make(map[string]int)
+	v.users.mapLock.Unlock()
 	return nil
+}
+
+// StopInstance closes the Xray instance - every listener and every connection
+// it carries - but keeps the built configuration, limiters, traffic counters
+// and monitor, so
+// StartInstance can bring the same configuration back during a rollback.
+func (v *XrayCore) StopInstance() error {
+	if v == nil {
+		return nil
+	}
+	v.access.Lock()
+	defer v.access.Unlock()
+	server := v.Server
+	// The dispatcher is kept: its per-user traffic counters stay readable so
+	// the controllers can collect what the closed connections carried.
+	v.Server, v.ihm, v.ohm = nil, nil, nil
+	if server == nil {
+		return nil
+	}
+	// Closing the Xray instance does not end connections that are already
+	// relaying; cut them explicitly so nothing keeps running on the retired
+	// configuration (or uncounted).
+	if v.dispatcher != nil {
+		v.dispatcher.CloseAllLinks()
+	}
+	return server.Close()
+}
+
+// Running reports whether an Xray instance is currently started.
+func (v *XrayCore) Running() bool {
+	if v == nil {
+		return false
+	}
+	v.access.Lock()
+	defer v.access.Unlock()
+	return v.Server != nil
 }
 
 func (v *XrayCore) Activate(serverconfig *panel.ServerConfigResponse) error {
@@ -130,6 +204,7 @@ func (v *XrayCore) Close() error {
 	}
 	server := v.Server
 	v.Config = nil
+	v.built = nil
 	v.ihm = nil
 	v.ohm = nil
 	v.dispatcher = nil
@@ -145,7 +220,9 @@ func (v *XrayCore) Close() error {
 	return nil
 }
 
-func getCore(c *conf.Conf, serverconfig *panel.ServerConfigResponse) (*core.Instance, error) {
+// buildCoreConfig compiles the candidate into an Xray configuration. It has no
+// side effects; see Build for why instance creation is a separate step.
+func buildCoreConfig(c *conf.Conf, serverconfig *panel.ServerConfigResponse) (*core.Config, error) {
 	// Log Config
 	coreLogConfig := &coreConf.LogConfig{
 		LogLevel:  c.LogConfig.Level,
@@ -193,11 +270,23 @@ func getCore(c *conf.Conf, serverconfig *panel.ServerConfigResponse) (*core.Inst
 		Inbound:  inBoundConfig,
 		Outbound: outBoundConfig,
 	}
-	server, err := core.New(config)
+	return config, nil
+}
+
+// SetMonitorInterval applies a new panel pull interval to the running config
+// monitor without touching the Xray instance.
+func (v *XrayCore) SetMonitorInterval(seconds int) error {
+	interval, err := panel.IntervalDuration(seconds)
 	if err != nil {
-		return nil, fmt.Errorf("create Xray instance: %w", err)
+		return fmt.Errorf("pull interval: %w", err)
 	}
-	return server, nil
+	v.access.Lock()
+	monitor := v.serverConfigMonitorPeriodic
+	v.access.Unlock()
+	if monitor == nil {
+		return nil
+	}
+	return monitor.SetInterval(interval)
 }
 
 func (c *XrayCore) startTasks(serverconfig *panel.ServerConfigResponse) error {

@@ -227,13 +227,13 @@ func (d *DefaultDispatcher) getLink(ctx context.Context, network net.Network) (*
 			common.Interrupt(inboundLink.Reader)
 			return nil, nil, nil, errors.New("Limited ", user.Email, " by conn or ip")
 		}
-		lmloaded, _ := d.LinkManagers.LoadOrStore(user.Email, &LinkManager{links: make(map[*ManagedWriter]buf.Reader)})
+		lmloaded, _ := d.LinkManagers.LoadOrStore(user.Email, newLinkManager())
 		lm := lmloaded.(*LinkManager)
 		managedWriter := &ManagedWriter{
 			writer:  uplinkWriter,
 			manager: lm,
 		}
-		lm.AddLink(managedWriter, outboundLink.Reader)
+		lm.AddLink(managedWriter, outboundLink.Reader, sessionInbound.Conn)
 		inboundLink.Writer = managedWriter
 		if w != nil {
 			sessionInbound.CanSpliceCopy = 3
@@ -396,12 +396,15 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 			common.Interrupt(outbound.Reader)
 			return errors.New("Limited ", user.Email, " by conn or ip")
 		}
-		lmloaded, _ := d.LinkManagers.LoadOrStore(user.Email, &LinkManager{links: make(map[*ManagedWriter]buf.Reader)})
+		lmloaded, _ := d.LinkManagers.LoadOrStore(user.Email, newLinkManager())
 		lm := lmloaded.(*LinkManager)
 		managedWriter := &ManagedWriter{
 			writer:  outbound.Writer,
 			manager: lm,
 		}
+		// Track the link like Dispatch does, including the real inbound
+		// connection, so removing the user or retiring the instance cuts it.
+		lm.AddLink(managedWriter, outbound.Reader, sessionInbound.Conn)
 		outbound.Writer = managedWriter
 		if w != nil {
 			sessionInbound.CanSpliceCopy = 3
@@ -593,4 +596,14 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 	}
 
 	handler.Dispatch(ctx, link)
+}
+
+// CloseAllLinks cuts every tracked user link. It is used when an instance is
+// retired so no connection keeps running on a configuration that is no longer
+// applied.
+func (d *DefaultDispatcher) CloseAllLinks() {
+	d.LinkManagers.Range(func(_, v any) bool {
+		v.(*LinkManager).CloseAll()
+		return true
+	})
 }

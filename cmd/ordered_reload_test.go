@@ -222,9 +222,11 @@ func TestRestorePreviousDoesNotClaimAvailabilityOnDoubleFailure(t *testing.T) {
 	if !ok || err == nil || !strings.Contains(err.Error(), "previous nodes restored") {
 		t.Fatalf("successful rollback: %v %v", ok, err)
 	}
-	ok, err = restorePrevious("stop", errors.New("remove failed"), func() {}, func() error { return nil })
-	if ok || err == nil || !strings.Contains(err.Error(), "unverified") {
-		t.Fatalf("ambiguous stop claimed availability: %v %v", ok, err)
+	// The restart recreates the previous Xray instance and binds every
+	// listener, so a successful restart proves availability for any stage.
+	ok, err = restorePrevious("core_start", errors.New("new core"), func() {}, func() error { return nil })
+	if !ok || err == nil || !strings.Contains(err.Error(), "previous nodes restored") {
+		t.Fatalf("rollback after core start failure: %v %v", ok, err)
 	}
 }
 

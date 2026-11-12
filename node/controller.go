@@ -137,6 +137,23 @@ func (c *Controller) Stop() error {
 	return nil
 }
 
+// markInstanceStopped stops the controller's tasks and forgets the listener
+// that died with its Xray instance.
+func (c *Controller) markInstanceStopped() {
+	if c.userListMonitorPeriodic != nil {
+		c.userListMonitorPeriodic.Close()
+		c.userListMonitorPeriodic = nil
+	}
+	if c.renewCertPeriodic != nil {
+		c.renewCertPeriodic.Close()
+		c.renewCertPeriodic = nil
+	}
+	c.started = false
+	// The instance is closed, so the counters are final: collect everything,
+	// including bytes carried by connections after the listener was removed.
+	c.collectTraffic(0)
+}
+
 func (c *Controller) Close() error {
 	if c == nil {
 		return nil
