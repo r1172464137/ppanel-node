@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -36,19 +37,20 @@ func TestReloadPreservesServiceAndRollsBackWithoutPanel(t *testing.T) {
 	var requests atomic.Int32
 	configForPort := func() *panel.ServerConfigResponse {
 		protocols := []panel.Protocol{{Type: "vless", Enable: true, Port: int(port.Load()), Transport: "tcp"}}
-		return &panel.ServerConfigResponse{Code: 200, Data: &panel.Data{Protocols: &protocols, Total: len(protocols), PullInterval: 3600, PushInterval: 3600, Routing: testCmdRouting()}}
+		return completeV3(&panel.ServerConfigResponse{Code: 200, Data: &panel.Data{Protocols: &protocols, Total: len(protocols), PullInterval: 3600, PushInterval: 3600, Routing: testCmdRouting()}},
+			map[string][]panel.IdentityUser{"vless": {{ID: 1, UUID: "00000000-0000-0000-0000-000000000001", AccountID: 1}}})
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v2/server/7":
-			json.NewEncoder(w).Encode(configForPort())
-		case "/v1/server/user":
+			// Users arrive in the candidate; the config fetch is the only
+			// panel read of a reload.
 			requests.Add(1)
 			if failUsers.Load() {
 				http.Error(w, "unavailable", 503)
 				return
 			}
-			fmt.Fprint(w, `{"code":200,"data":{"users":[{"id":1,"uuid":"00000000-0000-0000-0000-000000000001"}]}}`)
+			json.NewEncoder(w).Encode(configForPort())
 			if failAfterFetch.Load() {
 				failUsers.Store(true)
 			}
@@ -95,8 +97,10 @@ func TestReloadPreservesServiceAndRollsBackWithoutPanel(t *testing.T) {
 		}
 	}
 	oldNodes, oldCore := nodes, xcore
-	failUsers.Store(true)
-	if _, err := reload(path, &nodes, &xcore, nil); err == nil {
+	beforePrepare = func() error { return errors.New("injected preparation failure") }
+	_, err = reload(path, &nodes, &xcore, nil)
+	beforePrepare = func() error { return nil }
+	if err == nil {
 		t.Fatal("expected preparation failure")
 	}
 	if nodes != oldNodes || xcore != oldCore {
@@ -110,14 +114,13 @@ func TestReloadPreservesServiceAndRollsBackWithoutPanel(t *testing.T) {
 	}
 	defer blocker.Close()
 	port.Store(int32(blocker.Addr().(*net.TCPAddr).Port))
-	failUsers.Store(false)
 	failAfterFetch.Store(true)
 	before := requests.Load()
 	if _, err := reload(path, &nodes, &xcore, nil); err == nil {
 		t.Fatal("expected listener conflict")
 	}
 	if requests.Load() != before+1 {
-		t.Fatal("rollback fetched users from unavailable panel")
+		t.Fatal("rollback fetched from the unavailable panel")
 	}
 	if nodes != oldNodes || xcore != oldCore {
 		t.Fatal("failed switch lost old instance")

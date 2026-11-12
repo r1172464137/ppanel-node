@@ -184,8 +184,8 @@ func (p *p2Panel) payload() string {
 		`{"id":%q,"name":"B","protocol":"socks","address":"127.0.0.1","port":%d,"stream_settings":"{\"sockopt\":{\"dialerProxy\":\"routing_%s\"}}","rules":[],"ip_rules":[],"protocol_rules":[]}],`+
 		`"rules":[],"default_outbound_id":%q,"mode":"inherited","source":"global","source_revision":%d}`,
 		p2OutboundA, p.relayA, p2OutboundB, p.relayB, p2OutboundA, p2OutboundB, p.rev)
-	return fmt.Sprintf(`{"code":200,"data":{"pull_interval":%d,"push_interval":3600,"protocols":[{"type":"vless","enable":true,"port":%d,"transport":"tcp"}],"total":1,"routing":%s}}`,
-		p.pull, p.listenPort, routing)
+	return v3JSON(fmt.Sprintf(`{"code":200,"data":{"pull_interval":%d,"push_interval":3600,"protocols":[{"type":"vless","enable":true,"port":%d,"transport":"tcp"}],"total":1,"routing":%s}}`,
+		p.pull, p.listenPort, routing), dataPlaneUser)
 }
 
 func startP2Panel(t *testing.T, listenPort, relayA, relayB int) *p2Panel {
@@ -335,14 +335,14 @@ func TestFailedCandidateRestoresChainedOutbounds(t *testing.T) {
 	// the rollback the previous instance must again be the one serving: its B
 	// has to dial through the previous A, never through the candidate's A2.
 	a2 := startSocksRelay(t, nil)
-	usersBefore := p.userFetch.Load()
+	fetchesBefore := p.configFetches.Load()
 	p.set(func(p *p2Panel) { p.listenPort = blocker.Addr().(*net.TCPAddr).Port; p.relayA = a2.port(); p.rev = 2 })
 	err = n.reload()
 	if err == nil || !strings.Contains(err.Error(), "previous nodes restored") {
 		t.Fatalf("reload into an occupied port: %v", err)
 	}
-	if p.userFetch.Load() != usersBefore+1 {
-		t.Fatalf("rollback fetched from the panel again (%d user fetches)", p.userFetch.Load()-usersBefore)
+	if got := p.configFetches.Load() - fetchesBefore; got != 1 {
+		t.Fatalf("rollback fetched from the panel again (%d config fetches)", got)
 	}
 	assertChain(t, listen, a, b, "after-rollback")
 	if got := a2.requests(); len(got) != 0 {

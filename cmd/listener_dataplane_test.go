@@ -74,6 +74,7 @@ func TestBuiltinDirectThroughRealNodeListener(t *testing.T) {
 	listenPort := reservation.Addr().(*net.TCPAddr).Port
 	reservation.Close()
 	payload := fmt.Sprintf(`{"code":200,"data":{"pull_interval":3600,"push_interval":3600,"protocols":[{"type":"vless","enable":true,"port":%d,"transport":"tcp"}],"total":1,"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":1}}}`, listenPort)
+	payload = v3JSON(payload, dataPlaneUser)
 	panelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v2/server/7" {
 			fmt.Fprint(w, payload)
@@ -269,6 +270,7 @@ func TestHTTPSClientThroughNodeListenerDirectAndSOCKS(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			body = []byte(v3JSON(string(body), dataPlaneUser))
 			var bodyMu sync.RWMutex
 			panelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
@@ -357,6 +359,7 @@ func TestHTTPSClientThroughNodeListenerDirectAndSOCKS(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			next = []byte(v3JSON(string(next), dataPlaneUser))
 			bodyMu.Lock()
 			body = next
 			bodyMu.Unlock()

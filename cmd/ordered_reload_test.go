@@ -21,7 +21,7 @@ import (
 
 func TestOrderedCandidateRetryReplacementAndZeroProtocolStatus(t *testing.T) {
 	var mu sync.Mutex
-	revision, version := 1, 1
+	revision, version := 1, 3
 	statuses := []panel.ServerPushStatusRequest{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
@@ -34,7 +34,7 @@ func TestOrderedCandidateRetryReplacementAndZeroProtocolStatus(t *testing.T) {
 				w.WriteHeader(304)
 				return
 			}
-			fmt.Fprintf(w, `{"code":200,"data":{"pull_interval":3600,"push_interval":3600,"protocols":[],"routing":{"version":%d,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_server_id":0,"source_revision":%d,"local_transition_revision":0}}}`, version, revision)
+			fmt.Fprint(w, v3JSON(fmt.Sprintf(`{"code":200,"data":{"pull_interval":3600,"push_interval":3600,"protocols":[],"routing":{"version":%d,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_server_id":0,"source_revision":%d,"local_transition_revision":0}}}`, version, revision)))
 		case "/v1/server/status":
 			if r.URL.Query().Get("protocol") != "" {
 				t.Error("status was not server scoped")
@@ -91,7 +91,7 @@ func TestOrderedCandidateRetryReplacementAndZeroProtocolStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	mu.Lock()
-	revision, version = 3, 1
+	revision, version = 3, 3
 	mu.Unlock()
 	h, err := reload(path, &nodes, &x, nil)
 	if err != nil {
@@ -112,7 +112,7 @@ func TestOrderedCandidateRetryReplacementAndZeroProtocolStatus(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(statuses) != 3 || statuses[0].Version != 1 || statuses[0].Applied.SourceRevision != 1 || statuses[1].Pending.SourceRevision != 2 || statuses[2].Applied.SourceRevision != 3 {
+	if len(statuses) != 3 || statuses[0].Version != panel.RoutingVersion || statuses[0].Applied.SourceRevision != 1 || statuses[1].Pending.SourceRevision != 2 || statuses[2].Applied.SourceRevision != 3 {
 		t.Fatalf("zero-protocol heartbeat states = %+v", statuses)
 	}
 }
@@ -134,7 +134,7 @@ func TestServerReporterRunsWithoutAnyCore(t *testing.T) {
 	defer reporter.close()
 	select {
 	case status := <-reports:
-		if status.RoutingStatus == nil || status.Version != 1 || status.Applied != nil {
+		if status.RoutingStatus == nil || status.Version != panel.RoutingVersion || status.Applied != nil {
 			t.Fatalf("initial capability: %+v", status)
 		}
 	case <-time.After(3 * time.Second):
@@ -170,7 +170,7 @@ func TestMultipleLiveProtocolsDoNotOverwriteServerRoutingStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v2/server/7":
-			fmt.Fprintf(w, `{"code":200,"data":{"push_interval":1,"pull_interval":3600,"protocols":[{"type":"vless","enable":true,"port":%d,"transport":"tcp"},{"type":"vmess","enable":true,"port":%d,"transport":"tcp"}],"total":2,"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":4}}}`, p1, p2)
+			fmt.Fprint(w, v3JSON(fmt.Sprintf(`{"code":200,"data":{"push_interval":1,"pull_interval":3600,"protocols":[{"type":"vless","enable":true,"port":%d,"transport":"tcp"},{"type":"vmess","enable":true,"port":%d,"transport":"tcp"}],"total":2,"routing":{"version":3,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":4}}}`, p1, p2)))
 		case "/v1/server/user":
 			fmt.Fprint(w, `{"code":200,"data":{"users":[]}}`)
 		case "/v1/server/status":
@@ -242,7 +242,7 @@ func TestInitialBadCandidateRemainsPendingAndRecovers(t *testing.T) {
 			w.WriteHeader(304)
 			return
 		}
-		fmt.Fprintf(w, `{"code":200,"data":{"protocols":[],"routing":{"version":%d,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":%d}}}`, version, rev)
+		fmt.Fprint(w, v3JSON(fmt.Sprintf(`{"code":200,"data":{"protocols":[],"routing":{"version":%d,"outbounds":[],"rules":[],"default_outbound_id":"direct","user_defaults":[],"dns":{"query_strategy":"UseIP","resolvers":[{"id":"dns_00000000-0000-4000-8000-000000000001","protocol":"system","address":"","domains":[],"outbound_id":"direct"}]},"target_ip_preference":"none","mode":"inherited","source":"global","source_revision":%d}}}`, version, rev)))
 	}))
 	defer server.Close()
 	cfg := conf.New()
@@ -257,7 +257,7 @@ func TestInitialBadCandidateRemainsPendingAndRecovers(t *testing.T) {
 		t.Fatalf("startup status %+v", s)
 	}
 	mu.Lock()
-	version, rev = 1, 2
+	version, rev = 3, 2
 	mu.Unlock()
 	n, x, _, err := startInitial(context.Background(), cfg, client, nil)
 	if err != nil {

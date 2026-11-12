@@ -8,7 +8,7 @@ import (
 )
 
 func testNodeRouting() *panel.RoutingPolicy {
-	return completeV3(&panel.ServerConfigResponse{Data: &panel.Data{Routing: &panel.RoutingPolicy{RoutingIdentity: panel.RoutingIdentity{Mode: "inherited", Source: "global", SourceRevision: 1}}}}, nil).Data.Routing
+	return completeV3(v3(&panel.ServerConfigResponse{Data: &panel.Data{Routing: &panel.RoutingPolicy{RoutingIdentity: panel.RoutingIdentity{Mode: "inherited", Source: "global", SourceRevision: 1}}}}), nil).Data.Routing
 }
 
 func TestNewSkipsDisabledUnsupportedProtocols(t *testing.T) {
@@ -19,7 +19,7 @@ func TestNewSkipsDisabledUnsupportedProtocols(t *testing.T) {
 	node, err := New(nil, &conf.Conf{ApiConfig: conf.ServerApiConfig{
 		ApiHost: "https://panel.example", ServerId: 7,
 		ACMEEmail: "admin@example.test", ACMECADirURL: "https://acme.example.test/directory",
-	}}, &panel.ServerConfigResponse{Data: &panel.Data{Protocols: &protocols, Total: len(protocols), Routing: testNodeRouting()}})
+	}}, v3(&panel.ServerConfigResponse{Data: &panel.Data{Protocols: &protocols, Total: len(protocols), Routing: testNodeRouting()}}))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

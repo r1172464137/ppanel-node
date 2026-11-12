@@ -13,7 +13,7 @@ import (
 )
 
 func TestPreparedCoreStartsMonitorOnlyAfterActivation(t *testing.T) {
-	cfg := &panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{}, PullInterval: 3600, Routing: emptyTestRouting()}}
+	cfg := v3(&panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{}, PullInterval: 3600, Routing: emptyTestRouting()}})
 	x := New(conf.New(), nil)
 	if err := x.StartPrepared(cfg); err != nil {
 		t.Fatal(err)

@@ -51,7 +51,7 @@ func TestUnsupportedCapabilityNeverAdvancesApplied(t *testing.T) {
 							data.Protocols = []*serverv1.ServerProtocol{{Type: "shadowsocks", Enable: true, Port: 443, Cipher: "aes-128-gcm", Plugin: "obfs", PluginOptions: opts}}
 						}
 						data.Total = int64(len(data.Protocols))
-						body, _ := proto.Marshal(&serverv1.QueryServerProtocolConfigResponse{Code: 200, Data: data})
+						body, _ := proto.Marshal(&serverv1.QueryServerProtocolConfigResponse{Code: 200, Data: v3Proto(data)})
 						w.Write(body)
 						return
 					}
@@ -63,7 +63,8 @@ func TestUnsupportedCapabilityNeverAdvancesApplied(t *testing.T) {
 					if rev == 2 && kind == "shadowsocks-plugin" {
 						protocols = append(protocols, map[string]any{"type": "shadowsocks", "enable": true, "port": 443, "cipher": "aes-128-gcm", "plugin": "obfs", "plugin_opts": map[string]any{"mode": "http"}})
 					}
-					json.NewEncoder(w).Encode(map[string]any{"code": 200, "data": map[string]any{"protocols": protocols, "total": len(protocols), "pull_interval": 3600, "push_interval": 3600, "routing": map[string]any{"version": 3, "outbounds": outbounds, "rules": []any{}, "default_outbound_id": "direct", "mode": "inherited", "source": "global", "source_revision": rev}}})
+					body, _ := json.Marshal(map[string]any{"code": 200, "data": map[string]any{"protocols": protocols, "total": len(protocols), "pull_interval": 3600, "push_interval": 3600, "routing": map[string]any{"version": 3, "outbounds": outbounds, "rules": []any{}, "default_outbound_id": "direct", "user_defaults": []any{}, "dns": map[string]any{"query_strategy": "UseIP", "resolvers": []any{map[string]any{"id": "dns_00000000-0000-4000-8000-000000000001", "protocol": "system", "address": "", "domains": []any{}, "outbound_id": "direct"}}}, "target_ip_preference": "none", "mode": "inherited", "source": "global", "source_revision": rev}}})
+					fmt.Fprint(w, v3JSON(string(body)))
 				}))
 				defer server.Close()
 				cfg := conf.New()

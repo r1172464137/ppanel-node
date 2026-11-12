@@ -257,7 +257,7 @@ func TestServerStatusWithoutProtocolJSONAndProtobuf(t *testing.T) {
 					if err := proto.Unmarshal(readRequestBody(t, r), &msg); err != nil {
 						t.Fatal(err)
 					}
-					if msg.RoutingVersion != 1 || msg.InstanceId != ProcessInstanceID() || msg.RoutingSequence == 0 || msg.RoutingApplied.SourceRevision != 7 || msg.RoutingPending.SourceRevision != 8 || msg.RoutingError.Stage != "bind" {
+					if msg.RoutingVersion != RoutingVersion || msg.InstanceId != ProcessInstanceID() || msg.RoutingSequence == 0 || msg.RoutingApplied.SourceRevision != 7 || msg.RoutingPending.SourceRevision != 8 || msg.RoutingError.Stage != "bind" {
 						t.Fatalf("protobuf status: %+v", &msg)
 					}
 					writeProtobuf(t, w, &serverv1.Result{Code: 200})
@@ -267,7 +267,7 @@ func TestServerStatusWithoutProtocolJSONAndProtobuf(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
 					t.Fatal(err)
 				}
-				if msg.RoutingStatus == nil || msg.Version != 1 || msg.InstanceID != ProcessInstanceID() || msg.Sequence == 0 || msg.Applied.SourceRevision != 7 || msg.Pending.SourceRevision != 8 || msg.Error.Stage != "bind" {
+				if msg.RoutingStatus == nil || msg.Version != RoutingVersion || msg.InstanceID != ProcessInstanceID() || msg.Sequence == 0 || msg.Applied.SourceRevision != 7 || msg.Pending.SourceRevision != 8 || msg.Error.Stage != "bind" {
 					t.Fatalf("JSON status: %+v", msg)
 				}
 				fmt.Fprint(w, `{"code":200}`)

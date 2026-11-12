@@ -105,7 +105,7 @@ func protocolServer(t *testing.T, name string) (*XrayCore, int, *panel.NodeInfo,
 	cfg := conf.New()
 	cfg.LogConfig.Level = "error"
 	c := New(cfg, nil)
-	if err := c.Start(&panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{}, PullInterval: 3600, Routing: emptyTestRouting()}}); err != nil {
+	if err := c.Start(v3(&panel.ServerConfigResponse{Data: &panel.Data{Protocols: &[]panel.Protocol{}, PullInterval: 3600, Routing: emptyTestRouting()}})); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { c.Close() })

@@ -101,13 +101,13 @@ func TestOrderedRawAndCanonicalBudgets(t *testing.T) {
 	cfg.Data.Routing.Rules = nil
 	// Exact 256 KiB of canonical matching text, <= is valid.
 	for i := 0; i < 64; i++ {
-		cfg.Data.Routing.Rules = append(cfg.Data.Routing.Rules, panel.RouteRule{ID: ruleID(i), Enabled: boolp(false), Kind: "domain", Values: []string{"keyword:" + strings.Repeat("x", 4088)}, OutboundID: "block"})
+		cfg.Data.Routing.Rules = append(cfg.Data.Routing.Rules, panel.RouteRule{ID: ruleID(i), Enabled: boolp(false), Kind: "domain", Values: []string{"keyword:" + strings.Repeat("x", 4088)}, OutboundID: "block", UserIDs: []int64{}})
 	}
-	if err := ValidateOrdered(cfg.Data); err != nil {
+	if err := ValidateOrdered(v3(cfg).Data); err != nil {
 		t.Fatalf("exact budget rejected: %v", err)
 	}
-	cfg.Data.Routing.Rules = append(cfg.Data.Routing.Rules, panel.RouteRule{ID: ruleID(64), Enabled: boolp(false), Kind: "domain", Values: []string{"a.example"}, OutboundID: "block"})
-	if err := ValidateOrdered(cfg.Data); err == nil {
+	cfg.Data.Routing.Rules = append(cfg.Data.Routing.Rules, panel.RouteRule{ID: ruleID(64), Enabled: boolp(false), Kind: "domain", Values: []string{"a.example"}, OutboundID: "block", UserIDs: []int64{}})
+	if err := ValidateOrdered(v3(cfg).Data); err == nil {
 		t.Fatal("oversized canonical budget accepted")
 	}
 
@@ -120,7 +120,7 @@ func TestOrderedRawAndCanonicalBudgets(t *testing.T) {
 		}
 		cfg.Data.Routing.Rules = append(cfg.Data.Routing.Rules, panel.RouteRule{ID: ruleID(i), Enabled: boolp(true), Kind: "domain", Values: values, OutboundID: "direct"})
 	}
-	if err := ValidateOrdered(cfg.Data); err != nil {
+	if err := ValidateOrdered(v3(cfg).Data); err != nil {
 		t.Fatalf("legacy-sized migration rejected: %v", err)
 	}
 	values := make([]string, 1024)
@@ -128,16 +128,16 @@ func TestOrderedRawAndCanonicalBudgets(t *testing.T) {
 		values[i] = fmt.Sprintf("keyword:extra-%04d", i)
 	}
 	cfg.Data.Routing.Rules = append(cfg.Data.Routing.Rules, panel.RouteRule{ID: ruleID(7), Enabled: boolp(true), Kind: "domain", Values: values, OutboundID: "direct"})
-	if err := ValidateOrdered(cfg.Data); err != nil {
+	if err := ValidateOrdered(v3(cfg).Data); err != nil {
 		t.Fatalf("8192-value limit rejected: %v", err)
 	}
 	cfg.Data.Routing.Rules = append(cfg.Data.Routing.Rules, panel.RouteRule{ID: ruleID(8), Enabled: boolp(false), Kind: "domain", Values: []string{"keyword:extra-0000"}, OutboundID: "direct"})
-	if err := ValidateOrdered(cfg.Data); err == nil {
+	if err := ValidateOrdered(v3(cfg).Data); err == nil {
 		t.Fatal("8193 raw values accepted")
 	}
 	cfg.Data.Routing.Rules = cfg.Data.Routing.Rules[:8]
 	cfg.Data.Routing.Rules[0].Values = append(cfg.Data.Routing.Rules[0].Values, "keyword:duplicate")
-	if err := ValidateOrdered(cfg.Data); err == nil {
+	if err := ValidateOrdered(v3(cfg).Data); err == nil {
 		t.Fatal("raw per-rule limit ignored")
 	}
 }
@@ -216,11 +216,14 @@ func TestOrderedJSONByteLimitInclusive(t *testing.T) {
 	p.Outbounds[0].Settings = `{"padding":""}`
 	content := func() []byte {
 		b, err := json.Marshal(struct {
-			Version   int               `json:"version"`
-			Outbounds []panel.Outbound  `json:"outbounds"`
-			Rules     []panel.RouteRule `json:"rules"`
-			Default   string            `json:"default_outbound_id"`
-		}{p.Version, p.Outbounds, p.Rules, p.DefaultOutboundID})
+			Version      int                 `json:"version"`
+			Outbounds    []panel.Outbound    `json:"outbounds"`
+			Rules        []panel.RouteRule   `json:"rules"`
+			Default      string              `json:"default_outbound_id"`
+			UserDefaults []panel.UserDefault `json:"user_defaults"`
+			DNS          *panel.DNSPolicy    `json:"dns"`
+			Preference   string              `json:"target_ip_preference"`
+		}{p.Version, p.Outbounds, p.Rules, p.DefaultOutboundID, p.UserDefaults, p.DNS, p.TargetIPPreference})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -234,11 +237,11 @@ func TestOrderedJSONByteLimitInclusive(t *testing.T) {
 	if len(content()) != MaxOrderedJSONBytes {
 		t.Fatalf("fixture = %d bytes", len(content()))
 	}
-	if err := ValidateOrdered(cfg.Data); err != nil {
+	if err := ValidateOrdered(v3(cfg).Data); err != nil {
 		t.Fatalf("exact 1 MiB rejected: %v", err)
 	}
 	p.Outbounds[0].Settings = `{"padding":"` + strings.Repeat("x", missing+1) + `"}`
-	if err := ValidateOrdered(cfg.Data); err == nil {
+	if err := ValidateOrdered(v3(cfg).Data); err == nil {
 		t.Fatal("1 MiB + 1 accepted")
 	}
 	// A bare domain grows by "full:" during canonicalization. Raw input can
@@ -250,7 +253,7 @@ func TestOrderedJSONByteLimitInclusive(t *testing.T) {
 	if len(content()) != MaxOrderedJSONBytes {
 		t.Fatal("raw expansion fixture is not at the limit")
 	}
-	if err := ValidateOrdered(cfg.Data); err == nil {
+	if err := ValidateOrdered(v3(cfg).Data); err == nil {
 		t.Fatal("canonical package expansion beyond 1 MiB accepted")
 	}
 }

@@ -168,6 +168,10 @@ func serverHandle(_ *cobra.Command, _ []string) {
 
 }
 
+// beforePrepare is a test seam run while the candidate is prepared, before
+// the running instance is touched; an error fails the preparation.
+var beforePrepare = func() error { return nil }
+
 // afterPreviousStopped is a test seam called once the previous instance is
 // closed and before the candidate instance is created.
 var afterPreviousStopped = func() {}
@@ -297,6 +301,9 @@ func reload(config string, nodes **node.Node, xcore **core.XrayCore, logHandle *
 		return logHandle, fmt.Errorf("build candidate: %w", err)
 	}
 	newNodes, err := node.New(newCore, newConf, serverconfig)
+	if err == nil {
+		err = beforePrepare()
+	}
 	if err != nil {
 		p.RecordFailure(serverconfig, panel.StagePrepare)
 		_ = newCore.Close()
