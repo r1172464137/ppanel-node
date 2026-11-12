@@ -270,3 +270,7 @@ require (
 )
 
 replace github.com/xtls/xray-core v1.260327.0 => github.com/wyx2685/xray-core v0.0.0-20260930151924-e087e74a1bf2
+
+// reality 20260908 rejects ClientHellos without X25519MLKEM768, which locks
+// out Mihomo/Clash clients; keep the previous library until they send it.
+replace github.com/xtls/reality => github.com/xtls/reality v0.0.0-20260322125925-9234c772ba8f
